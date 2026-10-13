@@ -76,6 +76,8 @@ var array<extLine> a_opens = array.new<extLine>()
 
 var float sessHigh = na
 var float sessLow  = na
+var int   sessHighTime = na
+var int   sessLowTime  = na
 
 // ---------------------------------------------------------------------------
 // SESSION DETECTION (7:00am - 9:00am NY)
@@ -87,9 +89,15 @@ bool preSessionEnd   = not inPreSession and inPreSession[1]
 if preSessionStart
     sessHigh := high
     sessLow  := low
+    sessHighTime := time
+    sessLowTime  := time
 else if inPreSession
-    sessHigh := math.max(sessHigh, high)
-    sessLow  := math.min(sessLow, low)
+    if high > sessHigh
+        sessHigh := high
+        sessHighTime := time
+    if low < sessLow
+        sessLow := low
+        sessLowTime := time
 
 // ---------------------------------------------------------------------------
 // RANGE / STDV / OCTANT CREATION AT SESSION END (9:00am NY)
@@ -99,15 +107,16 @@ if preSessionEnd
     float rLow   = sessLow
     float rCE    = (rHigh + rLow) / 2.0
     float rWidth = rHigh - rLow
+    int   startTime = math.min(sessHighTime, sessLowTime)
 
     int capRange = time + rangeExtHours * 3600 * 1000
     // Assumes octant cutoff hour falls later the same day than the 9am session end
     int capOct   = time + (octCutoffHr - 9) * 3600 * 1000
 
     if showRange
-        array.push(a_range, f_newExtLine(rHigh, time, capRange, colHigh, "NY Pre-Session Dealing Range High", true))
-        array.push(a_range, f_newExtLine(rLow,  time, capRange, colLow,  "NY Pre-Session Dealing Range Low", true))
-        array.push(a_range, f_newExtLine(rCE,   time, capRange, colCE,   "NY Pre-Session Dealing Range C.E.", true))
+        array.push(a_range, f_newExtLine(rHigh, startTime, capRange, colHigh, "NY Pre-Session Dealing Range High", true))
+        array.push(a_range, f_newExtLine(rLow,  startTime, capRange, colLow,  "NY Pre-Session Dealing Range Low", true))
+        array.push(a_range, f_newExtLine(rCE,   startTime, capRange, colCE,   "NY Pre-Session Dealing Range C.E.", true))
 
     if showStdv
         var float[] stdvLevels = array.from(0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 4.5)
@@ -118,15 +127,15 @@ if preSessionEnd
                 float yUp = rHigh + k * rWidth
                 float yDn = rLow  - k * rWidth
                 string kTxt = str.tostring(k, "#.##")
-                array.push(a_stdv, f_newExtLine(yUp, time, capRange, colStdv, "NY Pre-Session +" + kTxt + " STDV", true))
-                array.push(a_stdv, f_newExtLine(yDn, time, capRange, colStdv, "NY Pre-Session -" + kTxt + " STDV", true))
+                array.push(a_stdv, f_newExtLine(yUp, startTime, capRange, colStdv, "NY Pre-Session +" + kTxt + " STDV", true))
+                array.push(a_stdv, f_newExtLine(yDn, startTime, capRange, colStdv, "NY Pre-Session -" + kTxt + " STDV", true))
 
     if showOctants
         var float[] octFracs  = array.from(0.125, 0.25, 0.375, 0.625, 0.75, 0.875)
         for i = 0 to array.size(octFracs) - 1
             float frac = array.get(octFracs, i)
             float y = rLow + frac * rWidth
-            array.push(a_oct, f_newExtLine(y, time, capOct, colOct, "", false))
+            array.push(a_oct, f_newExtLine(y, startTime, capOct, colOct, "", false))
 
 // ---------------------------------------------------------------------------
 // REFERENCE OPEN PRICE LINES (9:30 open, Midnight open)
