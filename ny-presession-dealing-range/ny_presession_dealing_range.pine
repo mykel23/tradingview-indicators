@@ -32,8 +32,8 @@ colStdv = input.color(color.new(color.red, 0), "STDV Color", group = grpStdv)
 
 grpOct = "Octant Levels"
 showOctants = input.bool(true, "Show Octant Levels (around C.E.)", group = grpOct)
-octCutoffHr = input.int(12, "Octant Extension Cutoff (NY hour, 24h clock)", minval = 0, maxval = 23, group = grpOct)
-colOct      = input.color(color.new(color.gray, 0), "Octant Color", group = grpOct)
+octCutoffHr = input.int(16, "Octant Extension Cutoff (NY hour, 24h clock)", minval = 0, maxval = 23, group = grpOct)
+colOct      = input.color(color.new(color.blue, 0), "Octant Color", group = grpOct)
 
 grpOpens = "Reference Open Prices"
 show930       = input.bool(true, "Show 9:30 Open Price", group = grpOpens)
