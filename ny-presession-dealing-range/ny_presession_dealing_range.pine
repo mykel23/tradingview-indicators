@@ -12,9 +12,9 @@ indicator("NY Pre-Session Dealing Range", shorttitle="NY PreSession DR", overlay
 grpRange = "NY Pre-Session Dealing Range"
 showRange     = input.bool(true, "Show Dealing Range (High / Low / C.E.)", group = grpRange)
 rangeExtHours = input.int(7, "Range Line Extension (hours from 9am session end)", minval = 1, maxval = 24, group = grpRange) // default 7 = extends to 4:00pm NY
-colHigh       = input.color(color.new(color.blue, 0), "High Color", group = grpRange)
-colLow        = input.color(color.new(color.blue, 0), "Low Color",  group = grpRange)
-colCE         = input.color(color.new(color.red, 0),  "C.E. Color", group = grpRange)
+colHigh       = input.color(color.new(#3658b7, 0), "High Color", group = grpRange)
+colLow        = input.color(color.new(#3658b7, 0), "Low Color",  group = grpRange)
+colCE         = input.color(color.new(#b22833, 0),  "C.E. Color", group = grpRange)
 lineWidthMain = input.int(1, "Line Width", minval = 1, maxval = 4, group = grpRange)
 
 grpStdv = "STDV Levels"
