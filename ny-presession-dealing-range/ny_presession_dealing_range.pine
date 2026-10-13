@@ -50,9 +50,9 @@ type extLine
     label lb
     int   capTime
 
-f_newExtLine(float y, int x1, int cap, color col, string txt) =>
+f_newExtLine(float y, int x1, int cap, color col, string txt, bool wantLabel) =>
     ln = line.new(x1, y, x1, y, xloc = xloc.bar_time, extend = extend.none, color = col, width = lineWidthMain)
-    lb = label.new(x1, y, txt, xloc = xloc.bar_time, style = label.style_label_left, color = color.new(color.black, 100), textcolor = col, size = size.small)
+    lb = wantLabel ? label.new(x1, y, txt, xloc = xloc.bar_time, style = label.style_label_left, color = color.new(color.black, 100), textcolor = col, size = size.small) : na
     extLine.new(ln, lb, cap)
 
 f_updateExtLine(extLine e) =>
@@ -60,8 +60,9 @@ f_updateExtLine(extLine e) =>
         int step = timeframe.in_seconds() * 1000 * 10
         int nx = math.min(time + step, e.capTime)
         line.set_x2(e.ln, nx)
-        label.set_x(e.lb, nx)
-        label.set_y(e.lb, line.get_y2(e.ln))
+        if not na(e.lb)
+            label.set_x(e.lb, nx)
+            label.set_y(e.lb, line.get_y2(e.ln))
 
 nySess(sessStr) => time(timeframe.period, sessStr, "America/New_York")
 
@@ -104,9 +105,9 @@ if preSessionEnd
     int capOct   = time + (octCutoffHr - 9) * 3600 * 1000
 
     if showRange
-        array.push(a_range, f_newExtLine(rHigh, time, capRange, colHigh, "NY Pre-Session Dealing Range High"))
-        array.push(a_range, f_newExtLine(rLow,  time, capRange, colLow,  "NY Pre-Session Dealing Range Low"))
-        array.push(a_range, f_newExtLine(rCE,   time, capRange, colCE,   "NY Pre-Session Dealing Range C.E."))
+        array.push(a_range, f_newExtLine(rHigh, time, capRange, colHigh, "NY Pre-Session Dealing Range High", true))
+        array.push(a_range, f_newExtLine(rLow,  time, capRange, colLow,  "NY Pre-Session Dealing Range Low", true))
+        array.push(a_range, f_newExtLine(rCE,   time, capRange, colCE,   "NY Pre-Session Dealing Range C.E.", true))
 
     if showStdv
         var float[] stdvLevels = array.from(0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 4.5)
@@ -117,13 +118,15 @@ if preSessionEnd
                 float yUp = rHigh + k * rWidth
                 float yDn = rLow  - k * rWidth
                 string kTxt = str.tostring(k, "#.##")
-                array.push(a_stdv, f_newExtLine(yUp, time, capRange, colStdv, "NY Pre-Session +" + kTxt + " STDV"))
-                array.push(a_stdv, f_newExtLine(yDn, time, capRange, colStdv, "NY Pre-Session -" + kTxt + " STDV"))
+                array.push(a_stdv, f_newExtLine(yUp, time, capRange, colStdv, "NY Pre-Session +" + kTxt + " STDV", true))
+                array.push(a_stdv, f_newExtLine(yDn, time, capRange, colStdv, "NY Pre-Session -" + kTxt + " STDV", true))
 
     if showOctants
-        for i = 1 to 7
-            float y = rLow + (i / 8.0) * rWidth
-            array.push(a_oct, f_newExtLine(y, time, capOct, colOct, "NY Pre-Session Octant " + str.tostring(i) + "/8"))
+        var float[] octFracs  = array.from(0.125, 0.25, 0.375, 0.625, 0.75, 0.875)
+        for i = 0 to array.size(octFracs) - 1
+            float frac = array.get(octFracs, i)
+            float y = rLow + frac * rWidth
+            array.push(a_oct, f_newExtLine(y, time, capOct, colOct, "", false))
 
 // ---------------------------------------------------------------------------
 // REFERENCE OPEN PRICE LINES (9:30 open, Midnight open)
@@ -131,12 +134,12 @@ if preSessionEnd
 bool ny930Start = not na(nySess("0930-0931")) and na(nySess("0930-0931")[1])
 if ny930Start and show930
     int cap930 = time + opensExtHours * 3600 * 1000
-    array.push(a_opens, f_newExtLine(open, time, cap930, col930, "9:30 Open Price"))
+    array.push(a_opens, f_newExtLine(open, time, cap930, col930, "9:30 Open Price", true))
 
 bool nyMidStart = not na(nySess("0000-0001")) and na(nySess("0000-0001")[1])
 if nyMidStart and showMidnight
     int capMid = time + opensExtHours * 3600 * 1000
-    array.push(a_opens, f_newExtLine(open, time, capMid, colMid, "Midnight Open Price"))
+    array.push(a_opens, f_newExtLine(open, time, capMid, colMid, "Midnight Open Price", true))
 
 // ---------------------------------------------------------------------------
 // PER-BAR EXTENSION UPDATE ("10 bars ahead until full extension" convention)
