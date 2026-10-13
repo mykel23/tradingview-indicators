@@ -141,11 +141,15 @@ if nyMidStart and showMidnight
 // ---------------------------------------------------------------------------
 // PER-BAR EXTENSION UPDATE ("10 bars ahead until full extension" convention)
 // ---------------------------------------------------------------------------
-for i = 0 to array.size(a_range) - 1
-    f_updateExtLine(array.get(a_range, i))
-for i = 0 to array.size(a_stdv) - 1
-    f_updateExtLine(array.get(a_stdv, i))
-for i = 0 to array.size(a_oct) - 1
-    f_updateExtLine(array.get(a_oct, i))
-for i = 0 to array.size(a_opens) - 1
-    f_updateExtLine(array.get(a_opens, i))
+if array.size(a_range) > 0
+    for i = 0 to array.size(a_range) - 1
+        f_updateExtLine(array.get(a_range, i))
+if array.size(a_stdv) > 0
+    for i = 0 to array.size(a_stdv) - 1
+        f_updateExtLine(array.get(a_stdv, i))
+if array.size(a_oct) > 0
+    for i = 0 to array.size(a_oct) - 1
+        f_updateExtLine(array.get(a_oct, i))
+if array.size(a_opens) > 0
+    for i = 0 to array.size(a_opens) - 1
+        f_updateExtLine(array.get(a_opens, i))
