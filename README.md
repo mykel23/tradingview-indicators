@@ -2,6 +2,8 @@
 
 Custom TradingView indicators written in Pine Script v6 for futures charting (MNQ / MES). They mark session-based price levels so I can study how price reacts around them.
 
+![NY Pre-Session Dealing Range on a 5-minute MNQ chart](ny-presession-dealing-range/screenshot.png)
+
 ## Indicators
 
 | Indicator | What it does |

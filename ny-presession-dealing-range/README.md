@@ -4,6 +4,9 @@ A TradingView overlay (Pine Script v6) for futures such as MNQ. It records the h
 
 Lines grow forward 10 bars at a time until they reach their end time, and they stay on the chart so past days can be reviewed.
 
+![NY Pre-Session Dealing Range on a 5-minute MNQ chart, Oct 13 2026](screenshot.png)
+*MNQ, 5-minute chart, Tuesday Oct 13 2026: the 7–9am range with its C.E., octants, STDV levels, and the midnight and 9:30 opens.*
+
 ## What it draws
 
 | Element | Details |
@@ -59,8 +62,7 @@ Each version is a separate commit, so the history shows how it was built:
 
 ## Known limitations
 
-- **Tested on 1m and 15m charts only.** Session detection uses the chart's own bars, so 1-hour and higher timeframes are unverified.
-- **v7 and v8 haven't been visually confirmed** on a live chart yet.
+- **Tested on 1m, 5m and 15m charts.** Session detection uses the chart's own bars, so 1-hour and higher timeframes are unverified.
 - **The "(this week)" label suffix is static** and doesn't change as lines age.
 - **The octant cutoff must be later than 9am** and is whole hours only; an earlier hour would produce a negative length.
 - **The range extension counts from 9:00am,** not from where the lines start. This is intentional so the 4pm end stays fixed.
