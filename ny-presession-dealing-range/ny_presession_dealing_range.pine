@@ -38,7 +38,7 @@ colOct      = input.color(color.new(color.blue, 0), "Octant Color", group = grpO
 grpOpens = "Reference Open Prices"
 show930       = input.bool(true, "Show 9:30 Open Price", group = grpOpens)
 showMidnight  = input.bool(true, "Show Midnight Open Price", group = grpOpens)
-opensExtHours = input.int(24, "Open Price Line Extension (hours)", minval = 1, maxval = 24, group = grpOpens)
+opensExtHours = input.int(72, "Open Price Line Extension (hours)", minval = 1, maxval = 168, group = grpOpens) // default 72 = 3 days
 col930        = input.color(color.new(color.teal, 0), "9:30 Open Color", group = grpOpens)
 colMid        = input.color(color.new(color.teal, 0), "Midnight Open Color", group = grpOpens)
 
@@ -65,6 +65,12 @@ f_updateExtLine(extLine e) =>
             label.set_y(e.lb, line.get_y2(e.ln))
 
 nySess(sessStr) => time(timeframe.period, sessStr, "America/New_York")
+
+f_dateLabel(int t) =>
+    var string[] wdNames = array.from("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+    string wd = array.get(wdNames, dayofweek(t, "America/New_York") - 1)
+    string md = str.tostring(month(t, "America/New_York")) + "/" + str.tostring(dayofmonth(t, "America/New_York"))
+    wd + " " + md
 
 // ---------------------------------------------------------------------------
 // STATE
@@ -143,12 +149,12 @@ if preSessionEnd
 bool ny930Start = not na(nySess("0930-0931")) and na(nySess("0930-0931")[1])
 if ny930Start and show930
     int cap930 = time + opensExtHours * 3600 * 1000
-    array.push(a_opens, f_newExtLine(open, time, cap930, col930, "9:30 Open Price", true))
+    array.push(a_opens, f_newExtLine(open, time, cap930, col930, f_dateLabel(time) + " 9:30 Open Price (this week)", true))
 
 bool nyMidStart = not na(nySess("0000-0001")) and na(nySess("0000-0001")[1])
 if nyMidStart and showMidnight
     int capMid = time + opensExtHours * 3600 * 1000
-    array.push(a_opens, f_newExtLine(open, time, capMid, colMid, "Midnight Open Price", true))
+    array.push(a_opens, f_newExtLine(open, time, capMid, colMid, f_dateLabel(time) + " Midnight Open Price (this week)", true))
 
 // ---------------------------------------------------------------------------
 // PER-BAR EXTENSION UPDATE ("10 bars ahead until full extension" convention)
