@@ -1,0 +1,151 @@
+//@version=6
+indicator("NY Pre-Session Dealing Range", shorttitle="NY PreSession DR", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// =============================================================================
+// ITERATION 1: Dealing Range (High/Low/C.E.) + STDV grid + Octant grid + Open lines
+// Formation window: 7:00am - 9:00am America/New_York
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// INPUTS
+// ---------------------------------------------------------------------------
+grpRange = "NY Pre-Session Dealing Range"
+showRange     = input.bool(true, "Show Dealing Range (High / Low / C.E.)", group = grpRange)
+rangeExtHours = input.int(24, "Range Line Extension (hours)", minval = 1, maxval = 24, group = grpRange)
+colHigh       = input.color(color.new(color.blue, 0), "High Color", group = grpRange)
+colLow        = input.color(color.new(color.blue, 0), "Low Color",  group = grpRange)
+colCE         = input.color(color.new(color.red, 0),  "C.E. Color", group = grpRange)
+lineWidthMain = input.int(1, "Line Width", minval = 1, maxval = 4, group = grpRange)
+
+grpStdv = "STDV Levels"
+showStdv = input.bool(true, "Show STDV Levels", group = grpStdv)
+s025 = input.bool(true, ".25 STDV", group = grpStdv)
+s05  = input.bool(true, ".5 STDV",  group = grpStdv)
+s1   = input.bool(true, "1 STDV",   group = grpStdv)
+s15  = input.bool(true, "1.5 STDV", group = grpStdv)
+s2   = input.bool(true, "2 STDV",   group = grpStdv)
+s25  = input.bool(true, "2.5 STDV", group = grpStdv)
+s3   = input.bool(true, "3 STDV",   group = grpStdv)
+s4   = input.bool(true, "4 STDV",   group = grpStdv)
+s45  = input.bool(true, "4.5 STDV", group = grpStdv)
+colStdv = input.color(color.new(color.red, 0), "STDV Color", group = grpStdv)
+
+grpOct = "Octant Levels"
+showOctants = input.bool(true, "Show Octant Levels (around C.E.)", group = grpOct)
+octCutoffHr = input.int(12, "Octant Extension Cutoff (NY hour, 24h clock)", minval = 0, maxval = 23, group = grpOct)
+colOct      = input.color(color.new(color.gray, 0), "Octant Color", group = grpOct)
+
+grpOpens = "Reference Open Prices"
+show930       = input.bool(true, "Show 9:30 Open Price", group = grpOpens)
+showMidnight  = input.bool(true, "Show Midnight Open Price", group = grpOpens)
+opensExtHours = input.int(24, "Open Price Line Extension (hours)", minval = 1, maxval = 24, group = grpOpens)
+col930        = input.color(color.new(color.teal, 0), "9:30 Open Color", group = grpOpens)
+colMid        = input.color(color.new(color.teal, 0), "Midnight Open Color", group = grpOpens)
+
+// ---------------------------------------------------------------------------
+// TYPE + HELPERS
+// ---------------------------------------------------------------------------
+type extLine
+    line  ln
+    label lb
+    int   capTime
+
+f_newExtLine(float y, int x1, int cap, color col, string txt) =>
+    ln = line.new(x1, y, x1, y, xloc = xloc.bar_time, extend = extend.none, color = col, width = lineWidthMain)
+    lb = label.new(x1, y, txt, xloc = xloc.bar_time, style = label.style_label_left, color = color.new(color.black, 100), textcolor = col, size = size.small)
+    extLine.new(ln, lb, cap)
+
+f_updateExtLine(extLine e) =>
+    if not na(e)
+        int step = timeframe.in_seconds() * 1000 * 10
+        int nx = math.min(time + step, e.capTime)
+        line.set_x2(e.ln, nx)
+        label.set_x(e.lb, nx)
+        label.set_y(e.lb, line.get_y2(e.ln))
+
+nySess(sessStr) => time(timeframe.period, sessStr, "America/New_York")
+
+// ---------------------------------------------------------------------------
+// STATE
+// ---------------------------------------------------------------------------
+var array<extLine> a_range = array.new<extLine>()
+var array<extLine> a_stdv  = array.new<extLine>()
+var array<extLine> a_oct   = array.new<extLine>()
+var array<extLine> a_opens = array.new<extLine>()
+
+var float sessHigh = na
+var float sessLow  = na
+
+// ---------------------------------------------------------------------------
+// SESSION DETECTION (7:00am - 9:00am NY)
+// ---------------------------------------------------------------------------
+bool inPreSession    = not na(nySess("0700-0900"))
+bool preSessionStart = inPreSession and not inPreSession[1]
+bool preSessionEnd   = not inPreSession and inPreSession[1]
+
+if preSessionStart
+    sessHigh := high
+    sessLow  := low
+else if inPreSession
+    sessHigh := math.max(sessHigh, high)
+    sessLow  := math.min(sessLow, low)
+
+// ---------------------------------------------------------------------------
+// RANGE / STDV / OCTANT CREATION AT SESSION END (9:00am NY)
+// ---------------------------------------------------------------------------
+if preSessionEnd
+    float rHigh  = sessHigh
+    float rLow   = sessLow
+    float rCE    = (rHigh + rLow) / 2.0
+    float rWidth = rHigh - rLow
+
+    int capRange = time + rangeExtHours * 3600 * 1000
+    // Assumes octant cutoff hour falls later the same day than the 9am session end
+    int capOct   = time + (octCutoffHr - 9) * 3600 * 1000
+
+    if showRange
+        array.push(a_range, f_newExtLine(rHigh, time, capRange, colHigh, "NY Pre-Session Dealing Range High"))
+        array.push(a_range, f_newExtLine(rLow,  time, capRange, colLow,  "NY Pre-Session Dealing Range Low"))
+        array.push(a_range, f_newExtLine(rCE,   time, capRange, colCE,   "NY Pre-Session Dealing Range C.E."))
+
+    if showStdv
+        var float[] stdvLevels = array.from(0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 4.5)
+        var bool[]  stdvToggle = array.from(s025, s05, s1, s15, s2, s25, s3, s4, s45)
+        for i = 0 to array.size(stdvLevels) - 1
+            if array.get(stdvToggle, i)
+                float k  = array.get(stdvLevels, i)
+                float yUp = rHigh + k * rWidth
+                float yDn = rLow  - k * rWidth
+                string kTxt = str.tostring(k, "#.##")
+                array.push(a_stdv, f_newExtLine(yUp, time, capRange, colStdv, "NY Pre-Session +" + kTxt + " STDV"))
+                array.push(a_stdv, f_newExtLine(yDn, time, capRange, colStdv, "NY Pre-Session -" + kTxt + " STDV"))
+
+    if showOctants
+        for i = 1 to 7
+            float y = rLow + (i / 8.0) * rWidth
+            array.push(a_oct, f_newExtLine(y, time, capOct, colOct, "NY Pre-Session Octant " + str.tostring(i) + "/8"))
+
+// ---------------------------------------------------------------------------
+// REFERENCE OPEN PRICE LINES (9:30 open, Midnight open)
+// ---------------------------------------------------------------------------
+bool ny930Start = not na(nySess("0930-0931")) and na(nySess("0930-0931")[1])
+if ny930Start and show930
+    int cap930 = time + opensExtHours * 3600 * 1000
+    array.push(a_opens, f_newExtLine(open, time, cap930, col930, "9:30 Open Price"))
+
+bool nyMidStart = not na(nySess("0000-0001")) and na(nySess("0000-0001")[1])
+if nyMidStart and showMidnight
+    int capMid = time + opensExtHours * 3600 * 1000
+    array.push(a_opens, f_newExtLine(open, time, capMid, colMid, "Midnight Open Price"))
+
+// ---------------------------------------------------------------------------
+// PER-BAR EXTENSION UPDATE ("10 bars ahead until full extension" convention)
+// ---------------------------------------------------------------------------
+for i = 0 to array.size(a_range) - 1
+    f_updateExtLine(array.get(a_range, i))
+for i = 0 to array.size(a_stdv) - 1
+    f_updateExtLine(array.get(a_stdv, i))
+for i = 0 to array.size(a_oct) - 1
+    f_updateExtLine(array.get(a_oct, i))
+for i = 0 to array.size(a_opens) - 1
+    f_updateExtLine(array.get(a_opens, i))
