@@ -6,6 +6,8 @@ Custom TradingView indicators written in Pine Script (v5 and v6) for futures cha
 
 ![FPFVG / LPFVG Session Suite on a 1-minute MNQ chart](fpfvg-lpfvg-session-suite/screenshot.png)
 
+![ICT Final Hour Macro on a 1-minute MNQ chart](ict-final-hour-macro/screenshot.png)
+
 ## Indicators
 
 | Indicator | What it does |

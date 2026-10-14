@@ -4,6 +4,8 @@ A TradingView indicator (Pine Script v6) for MNQ / MES charts that maps out the 
 
 The goal behind it is ICT's Market-on-Close macro: a raid on stops resting inside the final hour range, confirmed by SMT divergence between NQ and ES, during the 3:50–4:00pm window. This version builds the foundation for that: the range, the levels and the gaps. Raids, SMT, targets and signals are later steps in the [project charter](PROJECT_CHARTER.md).
 
+![ICT Final Hour Macro on a 1-minute MNQ chart in TradingView Replay](screenshot.png)
+
 ## What it draws
 
 **Final Hour Dealing Range.** A shaded box with high and low lines covering the 2:55–3:30pm New York range. It starts a few minutes before 3:00 so a high or low printed just before the hour still counts.
