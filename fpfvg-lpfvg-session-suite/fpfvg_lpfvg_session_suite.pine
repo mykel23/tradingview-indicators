@@ -254,21 +254,24 @@ if newCount >= 3 and processedUpTo < newCount
         // or an overnight/weekend break): only treat this as a valid 3-candle pattern if
         // candle 1 and candle 3 are genuinely exactly 2 minutes apart
         isAdjacent = (t3chk - t1chk) == 120000
-        // require more than 1 tick of actual gap — a single-tick gap is noise, not a real FVG
+        // require more than 5 ticks of actual gap — anything smaller is noise, not a real FVG
         rawBull = isAdjacent and l3 > h1
         rawBear = isAdjacent and h3 < l1
         rawGapSize = rawBull ? (l3 - h1) : rawBear ? (l1 - h3) : 0.0
-        meetsMinGap = rawGapSize > syminfo.mintick
+        meetsMinGap = rawGapSize > syminfo.mintick * 5
         bull := rawBull and meetsMinGap
         bear := rawBear and meetsMinGap
 
         if bull or bear
-            originTime = array.get(hT, idx - 2)   // candle 1 — anchors both the box's left edge and its time-window
-            nyH = hour(originTime, "America/New_York")
-            nyM = minute(originTime, "America/New_York")
-            nyY = year(originTime, "America/New_York")
-            nyMo = month(originTime, "America/New_York")
-            nyD = dayofmonth(originTime, "America/New_York")
+            originTime = array.get(hT, idx - 2)   // candle 1 — used only for the box's visual left edge
+            midTime = array.get(hT, idx - 1)      // candle 2 (the displacement candle) — this is what
+                                                    // actually anchors which time-window a gap belongs to,
+                                                    // matching the convention from the dealing range script
+            nyH = hour(midTime, "America/New_York")
+            nyM = minute(midTime, "America/New_York")
+            nyY = year(midTime, "America/New_York")
+            nyMo = month(midTime, "America/New_York")
+            nyD = dayofmonth(midTime, "America/New_York")
             dayKey = nyY * 372 + nyMo * 31 + nyD
             momNY = nyH * 60 + nyM
             gTop = bull ? l3 : l1
