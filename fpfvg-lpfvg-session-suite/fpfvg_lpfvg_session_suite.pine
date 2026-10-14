@@ -1,5 +1,5 @@
 // @version=5
-indicator("Increment 6 - Batch 1 (Simple Sessions)", overlay=true, max_boxes_count=200, max_labels_count=200)
+indicator("Increment 6 - Batch 2 (Simple + First/Last)", overlay=true, max_boxes_count=200, max_labels_count=200)
 
 // Scales up the PROVEN Increment 3/4 pattern (first-FVG-found-wins, per-day
 // reset, dynamic 10-bar-ahead extension, freeze at cap) to all 11 "simple"
@@ -31,6 +31,7 @@ type SessCfg
     int extType   // 0 = fixed NY clock time, 1 = +24h, 2 = +21 days
     int extH
     int extM
+    bool isLast    // true = LPFVG-style: always take the LATEST match in the window, not just the first
 
 type SessState
     box b = na
@@ -47,22 +48,28 @@ type SessState
 var SessCfg[] cfgs = array.new<SessCfg>()
 var SessState[] states = array.new<SessState>()
 
-f_add(_label, _sh, _sm, _win, _show, _extType, _eh, _em) =>
-    array.push(cfgs, SessCfg.new(_label, _sh, _sm, _win, _show, _extType, _eh, _em))
+f_add(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast) =>
+    array.push(cfgs, SessCfg.new(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast))
     array.push(states, SessState.new())
 
 if barstate.isfirst
-    f_add("FPFVG Midnight", 0, 0, 15, showMidnight, 1, 0, 0)      // +24h
-    f_add("FPFVG 1am", 1, 0, 15, show1am, 0, 10, 0)               // until 10am
-    f_add("FPFVG 2am", 2, 0, 15, show2am, 0, 10, 0)
-    f_add("FPFVG 3am", 3, 0, 15, show3am, 0, 10, 0)
-    f_add("FPFVG 6am", 6, 0, 60, show6am, 0, 11, 0)                // full hour, until 11am
-    f_add("FPFVG 7am", 7, 0, 15, show7am, 0, 10, 0)
-    f_add("FPFVG 8am", 8, 0, 15, show8am, 0, 10, 0)
-    f_add("FPFVG 10am", 10, 0, 15, show10am, 1, 0, 0)             // +24h
-    f_add("FPFVG 6pm", 18, 0, 60, show6pm, 0, 4, 0)                // full hour, until 4am
-    f_add("FPFVG 7pm", 19, 0, 60, show7pm, 0, 23, 0)               // full hour, until 11pm
-    f_add("FPFVG 10pm", 22, 0, 15, show10pm, 0, 6, 0)             // until 6am
+    f_add("FPFVG Midnight", 0, 0, 15, showMidnight, 1, 0, 0, false)      // +24h
+    f_add("FPFVG 1am", 1, 0, 15, show1am, 0, 10, 0, false)               // until 10am
+    f_add("FPFVG 2am", 2, 0, 15, show2am, 0, 10, 0, false)
+    f_add("FPFVG 3am", 3, 0, 15, show3am, 0, 10, 0, false)
+    f_add("FPFVG 6am", 6, 0, 60, show6am, 0, 11, 0, false)                // full hour, until 11am
+    f_add("LPFVG 6am", 6, 0, 60, show6am, 0, 11, 0, true)                 // full hour, until 11am
+    f_add("FPFVG 7am", 7, 0, 15, show7am, 0, 10, 0, false)
+    f_add("FPFVG 8am", 8, 0, 15, show8am, 0, 10, 0, false)
+    f_add("FPFVG 8am :30", 8, 30, 15, show8am, 0, 10, 0, false)
+    f_add("FPFVG 9am :00", 9, 0, 15, show9am, 0, 10, 0, false)
+    f_add("FPFVG 10am", 10, 0, 15, show10am, 1, 0, 0, false)             // +24h
+    f_add("FPFVG 6pm", 18, 0, 60, show6pm, 0, 4, 0, false)                // full hour, until 4am
+    f_add("LPFVG 6pm", 18, 0, 60, show6pm, 0, 4, 0, true)
+    f_add("FPFVG 7pm", 19, 0, 60, show7pm, 0, 23, 0, false)               // full hour, until 11pm
+    f_add("LPFVG 7pm", 19, 0, 60, show7pm, 0, 23, 0, true)
+    f_add("FPFVG Tokyo :00", 20, 0, 15, showTokyo, 0, 6, 0, false)       // until 6am
+    f_add("FPFVG 10pm", 22, 0, 15, show10pm, 0, 6, 0, false)             // until 6am
 
 var int barCount = 0
 bull = false
@@ -99,7 +106,13 @@ if barstate.isconfirmed
                     inWin = momNY >= winStart and momNY < winEnd
                     isNewDay = na(st.day) or dayKey != st.day
 
-                    if inWin and (not st.active or isNewDay)
+                    if inWin and (not st.active or isNewDay or cfg.isLast)
+                        // if we're replacing an existing box (LPFVG overwrite within the
+                        // same day), delete the old drawing first so it doesn't linger
+                        if st.active and not isNewDay and not na(st.b)
+                            box.delete(st.b)
+                            line.delete(st.mid)
+                            label.delete(st.lb)
                         st.active := true
                         st.finalized := false
                         st.day := dayKey
