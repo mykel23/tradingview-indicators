@@ -1,14 +1,21 @@
 //@version=6
-indicator("ICT Final Hour — Iter 2: Dealing Range + Fib/STDV", shorttitle="FH It2 Fib", overlay=true, max_lines_count=500, max_boxes_count=100, max_labels_count=350)
+indicator("ICT Final Hour — Iter 2: Dealing Range + Fib/STDV", shorttitle="FH It2 Fib", overlay=true, max_lines_count=500, max_boxes_count=150, max_labels_count=400)
 
-// NOTE: with the dynamic eighth/sixteenth-step levels (up to 26 possible per day, after
-// excluding the 3 permanent quarter positions per side) added to the fixed 15/day from
-// the range+fib+quarter-STDV lines, keeping the full historyDays worth of dynamic lines
-// around simultaneously can exceed Pine's 500-line hard cap if most days trigger many
-// levels. The dynamic history array prunes on a day-count basis (same as everything else)
-// but does NOT independently cap total line count — if you see lines silently disappearing
-// beyond what historyDays should show, lower historyDays or the tolerance so fewer levels
-// trigger per day.
+// NOTE: with the dynamic eighth/sixteenth-step levels (now extended out to the 2 STDV
+// boundary — up to 52 possible per day, after excluding the 6 permanent quarter/1/1.5/2
+// STDV positions per side) added to the fixed 21/day from the range+fib+permanent-STDV
+// lines, keeping the full historyDays worth of dynamic lines around simultaneously can
+// exceed Pine's 500-line hard cap if most days trigger many levels. The dynamic history
+// array prunes on a day-count basis (same as everything else) but does NOT independently
+// cap total line count — if you see lines silently disappearing beyond what historyDays
+// should show, lower historyDays or the tolerance so fewer levels trigger per day.
+//
+// NOTE: lines/box no longer use extend.right. Instead every active line's right edge and
+// every label's x position get explicitly recomputed each bar as bar_index + lookAheadBars
+// (default 10 bars ahead of current price), freezing at the actual display-cutoff bar once
+// reached. This avoids relying on Pine's automatic edge-extension, which behaved
+// inconsistently around session gaps (e.g. RTH close to Globex reopen) especially in live
+// mode vs. replay.
 
 // =====================================================================================
 // ITERATION 2 — DEALING RANGE + FIB / STDV LEVELS
@@ -17,24 +24,27 @@ indicator("ICT Final Hour — Iter 2: Dealing Range + Fib/STDV", shorttitle="FH 
 // Adds for this iteration:
 //   - Fib levels on the range (.125, .25, .375, .5 = C.E., .625, .75, .875) — colored the
 //     same blue as the High/Low lines, except C.E. which is #B22833
-//   - Permanent quarter-step STDV lines beyond the range (.25/.5/.75 both sides) in
-//     #F23645 — these never hide or recolor, they're fixed reference points
-//   - Dynamic eighth-step levels beyond the range (excluding the quarters above), hidden
-//     until a 1m candle wick or body touches that exact price within the trigger window
-//     — draw dotted #F23645 (same red as the quarters) when triggered
-//   - Dynamic sixteenth-step levels beyond the range (excluding eighths/quarters), same
-//     hidden-until-touched behavior — draw in #AA740F when triggered
+//   - Permanent quarter-step STDV lines beyond the range (.25/.5/.75/1/1.5/2 both sides) in
+//     #F23645 — these never hide or recolor, they're fixed reference points. 1 and 2 STDV
+//     carry text labels; .25/.5/.75/1.5 do not.
+//   - Dynamic eighth-step levels beyond the range (excluding the permanent lines above),
+//     hidden until a 1m candle wick or body touches that exact price within the trigger
+//     window — draw dotted #F23645 (same red as the permanent lines) when triggered
+//   - Dynamic sixteenth-step levels beyond the range (excluding eighths/permanent lines),
+//     same hidden-until-touched behavior — draw in #AA740F when triggered
+//   - The dynamic ladder now runs all the way out to the 2 STDV boundary (previously
+//     stopped at 1 STDV)
 //   - Range-formation window now starts a few minutes before the official session (default
 //     1455 instead of 1500) so a swing extreme that forms just before the session open
 //     (e.g. a low at 2:58pm) still gets captured — the hard stop at 1530 is unchanged
 //   - Fixed a gap between the box/lines when the high and low formed at different times —
 //     everything now starts from whichever extreme formed first
-//   - Keeps the last N trading days (default 29) of ranges on the chart simultaneously
+//   - Keeps the last N trading days (default 20) of ranges on the chart simultaneously
 //     for backtesting, instead of erasing yesterday's range when today's forms. Each
 //     day's drawings still freeze at their own display cutoff — only the most recent,
 //     still-forming day is ever actively tracking/extending. Oldest day is dropped once
 //     the count exceeds the input. (Pine's hard cap is 500 lines / 500 labels total, so
-//     the day count is capped at 29 to stay safely under that with this many lines/day.)
+//     the day count is capped at 20 to stay safely under that with this many lines/day.)
 // Explicitly NOT in this iteration: equal highs/lows, SMT, raids, targets, signals.
 // Those are later iterations per the project charter.
 // =====================================================================================
@@ -48,13 +58,14 @@ rangeSessionStr = input.session("1455-1530", "Final Hour Dealing Range (NY time)
 
 grpDisplay = "Line Display"
 displayEndStr = input.session("1625-1630", "Stop extending lines at (NY time)", group = grpDisplay)
+lookAheadBars = input.int(10, "Bars to project lines ahead of current price", group = grpDisplay, minval = 1)
 
 grpFib = "Fib / STDV Levels"
 showFib = input.bool(true, "Show Fib / STDV Levels", group = grpFib)
 stdvCap = input.float(0.5, "STDV Target Cap (fib extension beyond range)", group = grpFib, minval = 0)
 
 grpHistory = "History"
-historyDays = input.int(20, "Number of trading days to keep on chart", group = grpHistory, minval = 1, maxval = 29)
+historyDays = input.int(20, "Number of trading days to keep on chart", group = grpHistory, minval = 1, maxval = 20)
 
 grpDynamic = "Dynamic Extended Levels (eighths + sixteenths)"
 showDynamic     = input.bool(true, "Show dynamic eighth/sixteenth levels beyond .75 STDV", group = grpDynamic)
@@ -76,9 +87,19 @@ testDate     = input.time(timestamp("2026-08-03 00:00 -0400"), "Test Date", grou
 // TIME / SESSION HELPERS
 // =====================================================================================
 inRangeSession = not na(time(timeframe.period, rangeSessionStr, "America/New_York"))
-inDisplayEnd   = not na(time(timeframe.period, displayEndStr, "America/New_York"))
-reachedDisplayEnd = inDisplayEnd and not inDisplayEnd[1]
 inDynTrigger   = not na(time(timeframe.period, dynTriggerStr, "America/New_York"))
+
+// the display-cutoff freeze used to rely on a narrow session window (e.g. 1625-1630)
+// matching some bar's OPEN time exactly — on a coarse chart (15m+) bars only open on
+// :00/:15/:30/:45 etc, so that narrow window can simply never align with any bar, meaning
+// the freeze never fires and the range/fib/STDV lines extend forever (very visible across
+// a weekend, since nothing else resets them until the next real session). Fixed the same
+// way as the FVG 8pm cutoff and reversal window: compare actual NY minute-of-day directly,
+// with a sticky flag, instead of relying on session-string/bar-open alignment.
+displayEndHour = str.tonumber(str.substring(displayEndStr, 0, 2))
+displayEndMin  = str.tonumber(str.substring(displayEndStr, 2, 4))
+displayEndMinuteOfDay = displayEndHour * 60 + displayEndMin
+nyMinuteNowMain = hour(time, "America/New_York") * 60 + minute(time, "America/New_York")
 
 dateOK = not restrictDate or
      (year(time, "America/New_York")       == year(testDate, "America/New_York") and
@@ -117,6 +138,17 @@ sessionJustEnded = inRangeSession[1] and not inRangeSession
 // so the text never visually touches/overlaps the line regardless of chart zoom
 labelGap = 3
 
+// sticky, timeframe-agnostic replacement for the old edge-triggered reachedDisplayEnd —
+// see the note above at displayEndMinuteOfDay for why the old approach failed on 15m+
+var bool reachedDisplayEnd     = false
+var bool justReachedDisplayEnd = false
+if newSession and dateOK
+    reachedDisplayEnd := false
+justReachedDisplayEnd := false
+if dateOK and not reachedDisplayEnd and nyMinuteNowMain >= displayEndMinuteOfDay
+    reachedDisplayEnd := true
+    justReachedDisplayEnd := true
+
 
 // =====================================================================================
 // DRAW DEALING RANGE BOX + LEVEL LINES (on the main candlestick pane — overlay=true above)
@@ -134,14 +166,24 @@ var bool  rangeActive = false
 var line[]  fibLines  = array.new_line()
 var label[] fibLabels = array.new_label()
 
+// the 6 permanent quarter-STDV levels, both sides (12 total) — tracked separately so the
+// "Possible Reversal Level/High" markers (below) can recolor/relabel the exact matching
+// permanent line instead of drawing a duplicate overlapping one, since their candidate
+// offsets always include (Level) or sometimes include (High) these exact 6 positions
+var line[]   quarterLines    = array.new_line()
+var label[]  quarterLabels   = array.new_label()
+var float[]  quarterOffsetV  = array.new_float()
+var bool[]   quarterIsBull   = array.new_bool()
+var string[] quarterDefText  = array.new_string()
+
 // history retention: keep the last N days' drawings instead of deleting them each day
 var box[]   histBoxes  = array.new_box()
 var line[]  histLines  = array.new_line()
 var label[] histLabels = array.new_label()
 var int     dayCount   = 0
 
-LINES_PER_DAY  = 15   // hi/lo (2) + quadrants (6) + C.E. (1) + STDV quarters .25/.5/.75 both sides (6)
-LABELS_PER_DAY = 7    // hi/lo (2) + C.E. (1) + STDV .5/.25 both sides (4)
+LINES_PER_DAY  = 21   // hi/lo (2) + quadrants (6) + C.E. (1) + STDV quarters .25/.5/.75/1/1.5/2 both sides (12)
+LABELS_PER_DAY = 15   // hi/lo (2) + C.E. (1) + STDV .25/.5/.75/1/1.5/2 labels both sides (12)
 
 if sessionJustEnded and dateOK
     if not na(rangeBox)
@@ -172,34 +214,26 @@ if sessionJustEnded and dateOK
     // in shading/lines before whichever of the high/low formed second
     leftBar := math.min(rangeHighBar, rangeLowBar)
 
-    rangeBox := box.new(leftBar, rangeHigh, bar_index, rangeLow,
+    rangeBox := box.new(leftBar, rangeHigh, bar_index + lookAheadBars, rangeLow,
          border_color = color.new(color.blue, 60), bgcolor = color.new(color.blue, 92),
-         extend = extend.right)
+         extend = extend.none)
 
-    hiLine := line.new(leftBar, rangeHigh, bar_index, rangeHigh,
-         color = color.blue, width = 1, extend = extend.right)
-    loLine := line.new(leftBar, rangeLow, bar_index, rangeLow,
-         color = color.blue, width = 1, extend = extend.right)
+    hiLine := line.new(leftBar, rangeHigh, bar_index + lookAheadBars, rangeHigh,
+         color = color.blue, width = 1, extend = extend.none)
+    loLine := line.new(leftBar, rangeLow, bar_index + lookAheadBars, rangeLow,
+         color = color.blue, width = 1, extend = extend.none)
 
     // labels sit vertically centered right on the line (transparent background, just the
     // colored text with a small connector dash) — matches the reference style; they'll
-    // track to the right edge below and freeze at the display cutoff
-    hiLabel := label.new(bar_index + labelGap, rangeHigh, "Final Hour Dealing Range High",
+    // track just ahead of the line's own right edge below and freeze at the display cutoff
+    hiLabel := label.new(bar_index + lookAheadBars + labelGap, rangeHigh, "Final Hour Dealing Range High",
          style = label.style_label_left, color = color.new(color.blue, 100),
          textcolor = color.blue, size = size.small)
-    loLabel := label.new(bar_index + labelGap, rangeLow, "Final Hour Dealing Range Low",
+    loLabel := label.new(bar_index + lookAheadBars + labelGap, rangeLow, "Final Hour Dealing Range Low",
          style = label.style_label_left, color = color.new(color.blue, 100),
          textcolor = color.blue, size = size.small)
 
     rangeActive := true
-
-// keep the labels tracking a few bars ahead of the current (rightmost) bar, same as the
-// extend.right lines, until the display cutoff freezes everything in place
-if rangeActive and dateOK and not reachedDisplayEnd
-    if not na(hiLabel)
-        label.set_x(hiLabel, bar_index + labelGap)
-    if not na(loLabel)
-        label.set_x(loLabel, bar_index + labelGap)
 
 
 // =====================================================================================
@@ -215,79 +249,426 @@ quadrantLevels = array.from(0.125, 0.25, 0.375, 0.625, 0.75, 0.875)
 if sessionJustEnded and dateOK and showFib
     array.clear(fibLines)
     array.clear(fibLabels)
+    array.clear(quarterLines)
+    array.clear(quarterLabels)
+    array.clear(quarterOffsetV)
+    array.clear(quarterIsBull)
+    array.clear(quarterDefText)
 
     for lvl in quadrantLevels
         px = f_fibPrice(lvl)
-        ln = line.new(leftBar, px, bar_index, px, color = colRange, width = 1, extend = extend.right)
+        ln = line.new(leftBar, px, bar_index + lookAheadBars, px, color = colRange, width = 1, extend = extend.none)
         array.push(fibLines, ln)
 
     ceP = f_fibPrice(0.5)
-    ceLine = line.new(leftBar, ceP, bar_index, ceP, color = colCE, width = 1, extend = extend.right)
-    ceLabel = label.new(bar_index + labelGap, ceP, "Final Hour Dealing Range C.E.",
+    ceLine = line.new(leftBar, ceP, bar_index + lookAheadBars, ceP, color = colCE, width = 1, extend = extend.none)
+    ceLabel = label.new(bar_index + lookAheadBars + labelGap, ceP, "Final Hour Dealing Range C.E.",
          style = label.style_label_left, color = color.new(colCE, 100), textcolor = colCE, size = size.small)
     array.push(fibLines, ceLine)
     array.push(fibLabels, ceLabel)
 
     stdvUpperP = f_fibPrice(0 - stdvCap)
     stdvLowerP = f_fibPrice(1 + stdvCap)
-    stdvULine = line.new(leftBar, stdvUpperP, bar_index, stdvUpperP, color = colSTDV, width = 1, extend = extend.right)
-    stdvLLine = line.new(leftBar, stdvLowerP, bar_index, stdvLowerP, color = colSTDV, width = 1, extend = extend.right)
-    stdvULabel = label.new(bar_index + labelGap, stdvUpperP, "Final Hour ." + str.tostring(stdvCap) + " STDV",
+    stdvULine = line.new(leftBar, stdvUpperP, bar_index + lookAheadBars, stdvUpperP, color = colSTDV, width = 1, extend = extend.none)
+    stdvLLine = line.new(leftBar, stdvLowerP, bar_index + lookAheadBars, stdvLowerP, color = colSTDV, width = 1, extend = extend.none)
+    stdvULabel = label.new(bar_index + lookAheadBars + labelGap, stdvUpperP, "Final Hour ." + str.tostring(stdvCap) + " STDV",
          style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
-    stdvLLabel = label.new(bar_index + labelGap, stdvLowerP, "Final Hour ." + str.tostring(stdvCap) + " STDV",
+    stdvLLabel = label.new(bar_index + lookAheadBars + labelGap, stdvLowerP, "Final Hour ." + str.tostring(stdvCap) + " STDV",
          style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
     array.push(fibLines, stdvULine)
     array.push(fibLines, stdvLLine)
     array.push(fibLabels, stdvULabel)
     array.push(fibLabels, stdvLLabel)
+    array.push(quarterLines, stdvULine)
+    array.push(quarterLabels, stdvULabel)
+    array.push(quarterOffsetV, stdvCap)
+    array.push(quarterIsBull, true)
+    array.push(quarterDefText, "Final Hour ." + str.tostring(stdvCap) + " STDV")
+    array.push(quarterLines, stdvLLine)
+    array.push(quarterLabels, stdvLLabel)
+    array.push(quarterOffsetV, stdvCap)
+    array.push(quarterIsBull, false)
+    array.push(quarterDefText, "Final Hour ." + str.tostring(stdvCap) + " STDV")
 
     stdvUpperP2 = f_fibPrice(0 - 0.25)
     stdvLowerP2 = f_fibPrice(1 + 0.25)
-    stdvULine2 = line.new(leftBar, stdvUpperP2, bar_index, stdvUpperP2, color = colSTDV, width = 1, extend = extend.right)
-    stdvLLine2 = line.new(leftBar, stdvLowerP2, bar_index, stdvLowerP2, color = colSTDV, width = 1, extend = extend.right)
-    stdvULabel2 = label.new(bar_index + labelGap, stdvUpperP2, "Final Hour .25 STDV",
+    stdvULine2 = line.new(leftBar, stdvUpperP2, bar_index + lookAheadBars, stdvUpperP2, color = colSTDV, width = 1, extend = extend.none)
+    stdvLLine2 = line.new(leftBar, stdvLowerP2, bar_index + lookAheadBars, stdvLowerP2, color = colSTDV, width = 1, extend = extend.none)
+    stdvULabel2 = label.new(bar_index + lookAheadBars + labelGap, stdvUpperP2, "Final Hour .25 STDV",
          style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
-    stdvLLabel2 = label.new(bar_index + labelGap, stdvLowerP2, "Final Hour .25 STDV",
+    stdvLLabel2 = label.new(bar_index + lookAheadBars + labelGap, stdvLowerP2, "Final Hour .25 STDV",
          style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
     array.push(fibLines, stdvULine2)
     array.push(fibLines, stdvLLine2)
     array.push(fibLabels, stdvULabel2)
     array.push(fibLabels, stdvLLabel2)
+    array.push(quarterLines, stdvULine2)
+    array.push(quarterLabels, stdvULabel2)
+    array.push(quarterOffsetV, 0.25)
+    array.push(quarterIsBull, true)
+    array.push(quarterDefText, "Final Hour .25 STDV")
+    array.push(quarterLines, stdvLLine2)
+    array.push(quarterLabels, stdvLLabel2)
+    array.push(quarterOffsetV, 0.25)
+    array.push(quarterIsBull, false)
+    array.push(quarterDefText, "Final Hour .25 STDV")
 
-    // level 1.75 / -0.75 — a permanent quarter-step line like .25/.5 above, no label
+    // level 1.75 / -0.75 — a permanent quarter-step line like .25/.5 above. Now also gets
+    // a label object (empty text by default) so it can host a reversal marker's text too.
     stdvUpperMid2 = f_fibPrice(0 - 0.75)
     stdvLowerMid2 = f_fibPrice(1 + 0.75)
-    stdvUMidLine2 = line.new(leftBar, stdvUpperMid2, bar_index, stdvUpperMid2, color = colSTDV, width = 1, extend = extend.right)
-    stdvLMidLine2 = line.new(leftBar, stdvLowerMid2, bar_index, stdvLowerMid2, color = colSTDV, width = 1, extend = extend.right)
+    stdvUMidLine2 = line.new(leftBar, stdvUpperMid2, bar_index + lookAheadBars, stdvUpperMid2, color = colSTDV, width = 1, extend = extend.none)
+    stdvLMidLine2 = line.new(leftBar, stdvLowerMid2, bar_index + lookAheadBars, stdvLowerMid2, color = colSTDV, width = 1, extend = extend.none)
+    stdvUMidLabel2 = label.new(bar_index + lookAheadBars + labelGap, stdvUpperMid2, "",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    stdvLMidLabel2 = label.new(bar_index + lookAheadBars + labelGap, stdvLowerMid2, "",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
     array.push(fibLines, stdvUMidLine2)
     array.push(fibLines, stdvLMidLine2)
+    array.push(fibLabels, stdvUMidLabel2)
+    array.push(fibLabels, stdvLMidLabel2)
+    array.push(quarterLines, stdvUMidLine2)
+    array.push(quarterLabels, stdvUMidLabel2)
+    array.push(quarterOffsetV, 0.75)
+    array.push(quarterIsBull, true)
+    array.push(quarterDefText, "")
+    array.push(quarterLines, stdvLMidLine2)
+    array.push(quarterLabels, stdvLMidLabel2)
+    array.push(quarterOffsetV, 0.75)
+    array.push(quarterIsBull, false)
+    array.push(quarterDefText, "")
 
-// keep fib/STDV labels tracking a few bars ahead of the current bar, same as the range
-// labels, until the display cutoff freezes everything in place
-if rangeActive and dateOK and not reachedDisplayEnd and showFib
-    for lb in fibLabels
-        if not na(lb)
-            label.set_x(lb, bar_index + labelGap)
+    // level 1 STDV — permanent, with label
+    stdv1U = f_fibPrice(0 - 1.0)
+    stdv1L = f_fibPrice(1 + 1.0)
+    stdv1ULine = line.new(leftBar, stdv1U, bar_index + lookAheadBars, stdv1U, color = colSTDV, width = 1, extend = extend.none)
+    stdv1LLine = line.new(leftBar, stdv1L, bar_index + lookAheadBars, stdv1L, color = colSTDV, width = 1, extend = extend.none)
+    stdv1ULabel = label.new(bar_index + lookAheadBars + labelGap, stdv1U, "Final Hour 1 STDV",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    stdv1LLabel = label.new(bar_index + lookAheadBars + labelGap, stdv1L, "Final Hour 1 STDV",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    array.push(fibLines, stdv1ULine)
+    array.push(fibLines, stdv1LLine)
+    array.push(fibLabels, stdv1ULabel)
+    array.push(fibLabels, stdv1LLabel)
+    array.push(quarterLines, stdv1ULine)
+    array.push(quarterLabels, stdv1ULabel)
+    array.push(quarterOffsetV, 1.0)
+    array.push(quarterIsBull, true)
+    array.push(quarterDefText, "Final Hour 1 STDV")
+    array.push(quarterLines, stdv1LLine)
+    array.push(quarterLabels, stdv1LLabel)
+    array.push(quarterOffsetV, 1.0)
+    array.push(quarterIsBull, false)
+    array.push(quarterDefText, "Final Hour 1 STDV")
+
+    // level 1.5 STDV — permanent. Now also gets a label object (empty text by default).
+    stdv15U = f_fibPrice(0 - 1.5)
+    stdv15L = f_fibPrice(1 + 1.5)
+    stdv15ULine = line.new(leftBar, stdv15U, bar_index + lookAheadBars, stdv15U, color = colSTDV, width = 1, extend = extend.none)
+    stdv15LLine = line.new(leftBar, stdv15L, bar_index + lookAheadBars, stdv15L, color = colSTDV, width = 1, extend = extend.none)
+    stdv15ULabel = label.new(bar_index + lookAheadBars + labelGap, stdv15U, "",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    stdv15LLabel = label.new(bar_index + lookAheadBars + labelGap, stdv15L, "",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    array.push(fibLines, stdv15ULine)
+    array.push(fibLines, stdv15LLine)
+    array.push(fibLabels, stdv15ULabel)
+    array.push(fibLabels, stdv15LLabel)
+    array.push(quarterLines, stdv15ULine)
+    array.push(quarterLabels, stdv15ULabel)
+    array.push(quarterOffsetV, 1.5)
+    array.push(quarterIsBull, true)
+    array.push(quarterDefText, "")
+    array.push(quarterLines, stdv15LLine)
+    array.push(quarterLabels, stdv15LLabel)
+    array.push(quarterOffsetV, 1.5)
+    array.push(quarterIsBull, false)
+    array.push(quarterDefText, "")
+
+    // level 2 STDV — permanent, with label
+    stdv2U = f_fibPrice(0 - 2.0)
+    stdv2L = f_fibPrice(1 + 2.0)
+    stdv2ULine = line.new(leftBar, stdv2U, bar_index + lookAheadBars, stdv2U, color = colSTDV, width = 1, extend = extend.none)
+    stdv2LLine = line.new(leftBar, stdv2L, bar_index + lookAheadBars, stdv2L, color = colSTDV, width = 1, extend = extend.none)
+    stdv2ULabel = label.new(bar_index + lookAheadBars + labelGap, stdv2U, "Final Hour 2 STDV",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    stdv2LLabel = label.new(bar_index + lookAheadBars + labelGap, stdv2L, "Final Hour 2 STDV",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    array.push(fibLines, stdv2ULine)
+    array.push(fibLines, stdv2LLine)
+    array.push(fibLabels, stdv2ULabel)
+    array.push(fibLabels, stdv2LLabel)
+    array.push(quarterLines, stdv2ULine)
+    array.push(quarterLabels, stdv2ULabel)
+    array.push(quarterOffsetV, 2.0)
+    array.push(quarterIsBull, true)
+    array.push(quarterDefText, "Final Hour 2 STDV")
+    array.push(quarterLines, stdv2LLine)
+    array.push(quarterLabels, stdv2LLabel)
+    array.push(quarterOffsetV, 2.0)
+    array.push(quarterIsBull, false)
+    array.push(quarterDefText, "Final Hour 2 STDV")
 
 
 // =====================================================================================
-// DYNAMIC EXTENDED LEVELS — eighths (excl. quarters) + sixteenths (excl. eighths/quarters)
-// The permanent quarter lines above (.25/.5/.75 both sides) are fixed reference points and
-// NEVER recolor or hide — they stay #F23645 always.
+// "POSSIBLE REVERSAL LEVEL" / "POSSIBLE REVERSAL HIGH" — dynamic markers
+// -------------------------------------------------------------------------------------
+// Precondition: only activates for the day if, by the start of the evaluation window
+// (default 1558), price has already broken the 1 STDV level on one side. That determines
+// the locked direction (bullish = upper side broken, bearish = lower side broken) for the
+// rest of the window. If neither side broke, nothing plots that day.
+//
+// Within the window (default 1558-1606), two independent running extremes are tracked on
+// the locked side: the farthest CLOSE reached, and the farthest WICK (high/low) reached.
+// Both extremes only ever move farther out (never retreat), which makes both levels below
+// a natural one-way ratchet — they can move farther out as the extremes grow, but never
+// back in, even if a candle body later closes back past the current level.
+//   - "Possible Reversal Level <offset> STDV" — nearest of the full EIGHTH-step ladder
+//     (.125 through 3.0) to the running farthest CLOSE
+//   - "Possible Reversal High <offset> STDV" (bullish day) or "Possible Reversal Low
+//     <offset> STDV" (bearish day) — nearest of the full EIGHTH-step ladder (.125 through
+//     3.0) to the running farthest WICK
+// Both draw from the same broader ladder, not just the 6 permanent quarter positions —
+// when a pick coincides with a permanent line, that exact line gets recolored/relabeled
+// (reverting whichever one was previously highlighted) instead of drawing a duplicate on
+// top; when it doesn't coincide, a dedicated line dynamically reveals that normally-hidden
+// level instead.
+// =====================================================================================
+grpReversal = "Possible Reversal Level / High"
+showReversal      = input.bool(true, "Show dynamic Possible Reversal Level/High", group = grpReversal)
+reversalWindowStr = input.session("1558-1606", "Evaluation window (NY time)", group = grpReversal)
+colReversal       = color.rgb(128, 25, 34)   // #801922
+
+var float[] eighthOffsets = array.new_float()
+if barstate.isfirst
+    for i = 1 to 24
+        array.push(eighthOffsets, i * 0.125)
+
+inReversalWindow      = not na(time(timeframe.period, reversalWindowStr, "America/New_York"))
+
+var bool  everBrokeUpper1SD = false
+var bool  everBrokeLower1SD = false
+var bool  sideDetermined    = false
+var bool  windowEntered     = false
+var bool  activeBullish     = false
+var bool  activeBearish     = false
+var float runningCloseExt   = na
+var float runningWickExt    = na
+var float qLevelOffset      = na
+var float hLevelOffset      = na
+var int   levelPermIdx      = -1   // index into quarterLines currently highlighted for "Level", -1 = none
+var int   highPermIdx       = -1   // same, for "High"
+var line  reversalLevelLine  = na  // dedicated line, only used when Level's offset ISN'T a permanent position
+var label reversalLevelLabel = na
+var line  reversalHighLine   = na  // dedicated line, only used when High's offset ISN'T a permanent position
+var label reversalHighLabel  = na
+
+// dedicated variable-count history for the (at most 2) dedicated lines/labels — pruned
+// on the same rolling historyDays window, kept separate from fibLines/fibLabels since those
+// assume a fixed count per day for their archiving math
+var line[]  reversalHistLines     = array.new_line()
+var label[] reversalHistLabels    = array.new_label()
+var int[]   reversalHistDayCounts = array.new_int()
+
+f_revertQuarter(idx) =>
+    ln = array.get(quarterLines, idx)
+    lb = array.get(quarterLabels, idx)
+    line.set_color(ln, colSTDV)
+    line.set_style(ln, line.style_solid)
+    label.set_text(lb, array.get(quarterDefText, idx))
+    label.set_textcolor(lb, colSTDV)
+
+f_highlightQuarter(idx, txt) =>
+    ln = array.get(quarterLines, idx)
+    lb = array.get(quarterLabels, idx)
+    line.set_color(ln, colReversal)
+    line.set_style(ln, line.style_dotted)
+    label.set_text(lb, txt)
+    label.set_textcolor(lb, colReversal)
+
+f_findPermanentIdx(offset, bullish) =>
+    idx = -1
+    if array.size(quarterOffsetV) > 0
+        for i = 0 to array.size(quarterOffsetV) - 1
+            if array.get(quarterIsBull, i) == bullish and math.abs(array.get(quarterOffsetV, i) - offset) < 0.0001
+                idx := i
+    idx
+
+if newSession and dateOK
+    cnt = 0
+    if not na(reversalLevelLine)
+        array.push(reversalHistLines, reversalLevelLine)
+        array.push(reversalHistLabels, reversalLevelLabel)
+        cnt += 1
+    if not na(reversalHighLine)
+        array.push(reversalHistLines, reversalHighLine)
+        array.push(reversalHistLabels, reversalHighLabel)
+        cnt += 1
+    array.push(reversalHistDayCounts, cnt)
+    if array.size(reversalHistDayCounts) > historyDays
+        n = array.shift(reversalHistDayCounts)
+        if n > 0
+            for i = 1 to n
+                oldRevLine = array.shift(reversalHistLines)
+                line.delete(oldRevLine)
+                oldRevLabel = array.shift(reversalHistLabels)
+                label.delete(oldRevLabel)
+
+    everBrokeUpper1SD := false
+    everBrokeLower1SD := false
+    sideDetermined    := false
+    windowEntered      := false
+    activeBullish      := false
+    activeBearish      := false
+    runningCloseExt    := na
+    runningWickExt      := na
+    qLevelOffset        := na
+    hLevelOffset         := na
+    levelPermIdx         := -1
+    highPermIdx           := -1
+    reversalLevelLine    := na
+    reversalLevelLabel   := na
+    reversalHighLine     := na
+    reversalHighLabel    := na
+
+if dateOK and not na(rangeHigh)
+    upper1SDPrice = f_fibPrice(0 - 1.0)
+    lower1SDPrice = f_fibPrice(1 + 1.0)
+    if high >= upper1SDPrice
+        everBrokeUpper1SD := true
+    if low <= lower1SDPrice
+        everBrokeLower1SD := true
+
+if inReversalWindow and dateOK and not windowEntered
+    windowEntered := true
+    if everBrokeUpper1SD and not everBrokeLower1SD
+        activeBullish   := true
+        sideDetermined  := true
+    else if everBrokeLower1SD and not everBrokeUpper1SD
+        activeBearish   := true
+        sideDetermined  := true
+    else if everBrokeUpper1SD and everBrokeLower1SD
+        // both sides broke before the window (rare) — default to bullish
+        activeBullish   := true
+        sideDetermined  := true
+
+f_nearestOffset(target, offsets, bullish) =>
+    float bestOff = na
+    if array.size(offsets) > 0
+        bestOff := array.get(offsets, 0)
+        bestPx = f_fibPrice(bullish ? 0 - bestOff : 1 + bestOff)
+        bestDiff = math.abs(target - bestPx)
+        for i = 1 to array.size(offsets) - 1
+            off = array.get(offsets, i)
+            px = f_fibPrice(bullish ? 0 - off : 1 + off)
+            d = math.abs(target - px)
+            if d < bestDiff
+                bestDiff := d
+                bestOff := off
+    bestOff
+
+if showReversal and dateOK and inReversalWindow and sideDetermined
+    if activeBullish
+        runningCloseExt := na(runningCloseExt) ? close : math.max(runningCloseExt, close)
+        runningWickExt  := na(runningWickExt) ? high : math.max(runningWickExt, high)
+    else if activeBearish
+        runningCloseExt := na(runningCloseExt) ? close : math.min(runningCloseExt, close)
+        runningWickExt  := na(runningWickExt) ? low : math.min(runningWickExt, low)
+
+    newQOffset = f_nearestOffset(runningCloseExt, eighthOffsets, activeBullish)
+    newHOffset = f_nearestOffset(runningWickExt, eighthOffsets, activeBullish)
+
+    // "Possible Reversal Level" — nearest eighth-tier offset to the farthest close; may or
+    // may not coincide with a permanent quarter line
+    if not na(newQOffset) and (na(qLevelOffset) or newQOffset != qLevelOffset)
+        qLevelOffset := newQOffset
+        newLevelIdx = f_findPermanentIdx(newQOffset, activeBullish)
+        qText = "Possible Reversal Level " + str.tostring(newQOffset) + " STDV"
+        if newLevelIdx >= 0
+            // coincides with a permanent line — highlight it, and clean up any dedicated
+            // line left over from a moment ago when it wasn't coinciding
+            if not na(reversalLevelLine)
+                line.delete(reversalLevelLine)
+                label.delete(reversalLevelLabel)
+                reversalLevelLine := na
+                reversalLevelLabel := na
+            if newLevelIdx != levelPermIdx
+                if levelPermIdx >= 0
+                    f_revertQuarter(levelPermIdx)
+                f_highlightQuarter(newLevelIdx, qText)
+                levelPermIdx := newLevelIdx
+        else
+            // doesn't coincide — revert any permanent highlight first, then use a
+            // dedicated line instead, dynamically revealing this normally-hidden level
+            if levelPermIdx >= 0
+                f_revertQuarter(levelPermIdx)
+                levelPermIdx := -1
+            qPrice = f_fibPrice(activeBullish ? 0 - qLevelOffset : 1 + qLevelOffset)
+            if na(reversalLevelLine)
+                reversalLevelLine := line.new(leftBar, qPrice, bar_index + lookAheadBars, qPrice, color = colReversal, width = 1, style = line.style_dotted, extend = extend.none)
+                reversalLevelLabel := label.new(bar_index + lookAheadBars + labelGap, qPrice, qText, style = label.style_label_left, color = color.new(colReversal, 100), textcolor = colReversal, size = size.small)
+            else
+                line.set_y1(reversalLevelLine, qPrice)
+                line.set_y2(reversalLevelLine, qPrice)
+                label.set_y(reversalLevelLabel, qPrice)
+                label.set_text(reversalLevelLabel, qText)
+
+    // "Possible Reversal High" (bullish) / "Possible Reversal Low" (bearish) — may or may
+    // not coincide with a permanent quarter line
+    if not na(newHOffset) and (na(hLevelOffset) or newHOffset != hLevelOffset)
+        hLevelOffset := newHOffset
+        newHighIdx = f_findPermanentIdx(newHOffset, activeBullish)
+        hText = "Possible Reversal " + (activeBullish ? "High " : "Low ") + str.tostring(newHOffset) + " STDV"
+        if newHighIdx >= 0
+            // coincides with a permanent line — highlight it, and clean up any dedicated
+            // line left over from a moment ago when it wasn't coinciding
+            if not na(reversalHighLine)
+                line.delete(reversalHighLine)
+                label.delete(reversalHighLabel)
+                reversalHighLine := na
+                reversalHighLabel := na
+            if newHighIdx != highPermIdx
+                if highPermIdx >= 0
+                    f_revertQuarter(highPermIdx)
+                f_highlightQuarter(newHighIdx, hText)
+                highPermIdx := newHighIdx
+        else
+            // doesn't coincide — revert any permanent highlight first, then use a
+            // dedicated line instead
+            if highPermIdx >= 0
+                f_revertQuarter(highPermIdx)
+                highPermIdx := -1
+            hPrice = f_fibPrice(activeBullish ? 0 - hLevelOffset : 1 + hLevelOffset)
+            if na(reversalHighLine)
+                reversalHighLine := line.new(leftBar, hPrice, bar_index + lookAheadBars, hPrice, color = colReversal, width = 1, style = line.style_dotted, extend = extend.none)
+                reversalHighLabel := label.new(bar_index + lookAheadBars + labelGap, hPrice, hText, style = label.style_label_left, color = color.new(colReversal, 100), textcolor = colReversal, size = size.small)
+            else
+                line.set_y1(reversalHighLine, hPrice)
+                line.set_y2(reversalHighLine, hPrice)
+                label.set_y(reversalHighLabel, hPrice)
+                label.set_text(reversalHighLabel, hText)
+
+
+
+// =====================================================================================
+// DYNAMIC EXTENDED LEVELS — eighths (excl. permanent lines) + sixteenths (excl. eighths/permanent lines)
+// The permanent lines above (.25/.5/.75/1/1.5/2 STDV both sides) are fixed reference points
+// and NEVER recolor or hide — they stay #F23645 always.
 // Everything else on the 1/16 ladder beyond the range (steps of 0.0625, from level 1.0625
-// up to 2.0, and mirrored -0.0625 to -1.0) is hidden by default. A level only draws once a
+// up to 3.0, and mirrored -0.0625 to -2.0) is hidden by default. A level only draws once a
 // 1-minute candle's wick OR body touches that exact price (within a small tick tolerance),
 // and only if that touch happens inside the trigger window (default 1530-1600 NY).
-//   - Eighth-step levels (1.125, 1.375, 1.625, 1.875 and mirrored) draw dotted, same
-//     #F23645 red as the permanent quarters
+//   - Eighth-step levels (the 1/8 positions not already permanent) draw dotted, same
+//     #F23645 red as the permanent lines
 //   - Sixteenth-step levels (the remaining odd 1/16 positions) draw solid #AA740F
-// Neither tier changes the other's color, and neither ever touches the permanent quarters.
+// Neither tier changes the other's color, and neither ever touches the permanent lines.
 // Triggers independently per side. Since the number of levels that trigger varies day to
 // day, these need their own variable-count history tracking rather than the fixed
 // LINES_PER_DAY scheme used above.
 // =====================================================================================
 var line[] dynLinesToday = array.new_line()   // lines triggered so far on the current day
-var bool[] dynHit        = array.new_bool(32, false)   // index 0-15 = lower side i=1..16, 16-31 = upper side i=1..16
+var bool[] dynHit        = array.new_bool(64, false)   // index 0-31 = lower side i=1..32, 32-63 = upper side i=1..32
 
 var line[] dynHistLines     = array.new_line()
 var int[]  dynHistDayCounts = array.new_int()
@@ -300,17 +681,19 @@ if newSession and dateOK
             array.push(dynHistLines, ln)
         if array.size(dynHistDayCounts) > historyDays
             n = array.shift(dynHistDayCounts)
-            for i = 1 to n
-                oldestDynLine = array.shift(dynHistLines)
-                line.delete(oldestDynLine)
+            if n > 0
+                for i = 1 to n
+                    oldestDynLine = array.shift(dynHistLines)
+                    line.delete(oldestDynLine)
     array.clear(dynLinesToday)
     array.fill(dynHit, false)
 
 if showDynamic and dateOK and inDynTrigger and not na(rangeHigh)
     tol = dynToleranceTk * syminfo.mintick
-    for i = 1 to 16
-        // i = 4, 8, 12 land exactly on the permanent quarter lines (.25/.5/.75) — skip
-        if i != 4 and i != 8 and i != 12
+    for i = 1 to 32
+        // i = 4, 8, 12, 16, 24, 32 land exactly on the permanent lines (.25/.5/.75/1/1.5/2
+        // STDV) — skip those, everything else on the 1/16 grid is dynamic
+        if i != 4 and i != 8 and i != 12 and i != 16 and i != 24 and i != 32
             isEighth  = i % 2 == 0
             tierColor = isEighth ? colSTDV : colSixteenth
             tierStyle = isEighth ? line.style_dotted : line.style_solid
@@ -319,32 +702,434 @@ if showDynamic and dateOK and inDynTrigger and not na(rangeHigh)
             if not array.get(dynHit, lowerIdx)
                 px = f_fibPrice(1 + i * 0.0625)
                 if math.abs(high - px) <= tol or math.abs(low - px) <= tol or math.abs(open - px) <= tol or math.abs(close - px) <= tol
-                    ln = line.new(leftBar, px, bar_index, px, color = tierColor, width = 1, style = tierStyle, extend = extend.right)
+                    ln = line.new(leftBar, px, bar_index + lookAheadBars, px, color = tierColor, width = 1, style = tierStyle, extend = extend.none)
                     array.push(dynLinesToday, ln)
                     array.set(dynHit, lowerIdx, true)
 
-            upperIdx = 16 + i - 1
+            upperIdx = 32 + i - 1
             if not array.get(dynHit, upperIdx)
                 pxU = f_fibPrice(0 - i * 0.0625)
                 if math.abs(high - pxU) <= tol or math.abs(low - pxU) <= tol or math.abs(open - pxU) <= tol or math.abs(close - pxU) <= tol
-                    lnU = line.new(leftBar, pxU, bar_index, pxU, color = tierColor, width = 1, style = tierStyle, extend = extend.right)
+                    lnU = line.new(leftBar, pxU, bar_index + lookAheadBars, pxU, color = tierColor, width = 1, style = tierStyle, extend = extend.none)
                     array.push(dynLinesToday, lnU)
                     array.set(dynHit, upperIdx, true)
 
 
 // =====================================================================================
-// STOP EXTENDING LINES AT THE DISPLAY CUTOFF (default 4:25pm NY)
+// 1-MINUTE FAIR VALUE GAPS (3pm-4pm hour)
+// -------------------------------------------------------------------------------------
+// A Fair Value Gap (FVG) is a 3-candle pattern: candle 1, candle 2 (the displacement
+// candle), candle 3. A bullish FVG forms when candle 3's low sits above candle 1's high
+// (gap = [candle1 high, candle3 low]); a bearish FVG forms when candle 3's high sits below
+// candle 1's low (gap = [candle3 high, candle1 low]).
+//
+// IMPORTANT: this always detects true 1-MINUTE FVGs, regardless of what timeframe the
+// chart itself is displaying. request.security_lower_tf pulls the actual 1-minute
+// open/high/low/close/time for every 1m bar inside the current chart bar (so on a 5m
+// chart, up to 5 individual 1m bars get checked per chart bar, not one 5m candle). A
+// rolling 3-entry-deep buffer of real 1m bars is kept (independent of chart timeframe) to
+// run the pattern check against. Because "which bar_index is X minutes back" is
+// meaningless once the chart isn't on 1m, positioning uses actual timestamps
+// (xloc.bar_time) instead of bar_index — so these lock to real 1-minute candle times and
+// stay correctly placed and readable on any chart timeframe.
+//
+// Three independent trackers, each its own labeled box (fill + dashed midline + label):
+//   - "1m FPFVG 3pm"    — the FIRST FVG that completes at/after 3:00pm. Locked permanently
+//     the moment it's found (never replaced).
+//   - "1m FPFVG 3:30pm" — same idea, independent window starting 3:30pm instead of 3pm.
+//   - "1m LPFVG 3pm"    — does NOT start searching until 3:45pm, then gets replaced by
+//     each new FVG found through 4:00pm — whatever's most recent when 4:00pm hits is the
+//     final, locked answer.
+// All three then extend (10 real minutes ahead of the latest known 1m bar) until a hard
+// 8:00pm cutoff, at which point they freeze in place. The 8pm cutoff is detected by
+// comparing actual time-of-day (not by counting bars), so it isn't thrown off by the
+// 5-6pm electronic-session gap.
 // =====================================================================================
-if reachedDisplayEnd and dateOK
+grpFVG = "1-Minute Fair Value Gaps"
+showFVG    = input.bool(true, "Show 1m Fair Value Gaps", group = grpFVG)
+colFVGBg   = color.rgb(179, 157, 219)   // #B39DDB — box background fill
+colFVGLine = color.rgb(81, 45, 168)     // #512DA8 — midline + label text
+colFVG2    = color.rgb(34, 171, 148)    // #22AB94 — background/midline/text for the :15 and :45 FPFVGs
+fvgCutoffMinuteOfDay = 23 * 60   // 11:00pm
+fvgLookAheadMs = lookAheadBars * timeframe.in_seconds(timeframe.period) * 1000   // 10 bars of the CURRENT chart's timeframe, same convention as every other line in this indicator
+fvgLabelGapMs  = labelGap * timeframe.in_seconds(timeframe.period) * 1000
+
+// request.security_lower_tf requires the requested timeframe to be <= the chart's own —
+// requesting "1" from a sub-1-minute chart (15s/30s) is structurally invalid and breaks
+// the WHOLE script regardless of any if-condition wrapped around the call (Pine checks
+// this independent of runtime branching, and even against the branch that's never taken).
+// So the requested timeframe itself has to be computed dynamically: request true "1"
+// (preserving real intra-bar 1-minute granularity) whenever the chart is 1m or coarser,
+// and fall back to the chart's own native resolution only when the chart itself is finer
+// than 1 minute (where "1" would be invalid) — then manually aggregate those bars up into
+// real completed 1-minute buckets ourselves, however many native bars that takes.
+lowerTF = timeframe.in_seconds(timeframe.period) >= 60 ? "1" : timeframe.period
+[rawH, rawL, rawT] = request.security_lower_tf(syminfo.tickerid, lowerTF, [high, low, time])
+
+var float[] m1H = array.new_float()
+var float[] m1L = array.new_float()
+var int[]   m1T = array.new_int()
+array.clear(m1H)
+array.clear(m1L)
+array.clear(m1T)
+
+var float bucketHigh = na
+var float bucketLow  = na
+var int   bucketMinute = na
+
+if array.size(rawH) > 0
+    for i = 0 to array.size(rawH) - 1
+        rh = array.get(rawH, i)
+        rl = array.get(rawL, i)
+        rt = array.get(rawT, i)
+        thisMinute = int(math.floor(rt / 60000.0))   // floor to the minute boundary
+
+        if na(bucketMinute)
+            bucketMinute := thisMinute
+            bucketHigh := rh
+            bucketLow := rl
+        else if thisMinute == bucketMinute
+            bucketHigh := math.max(bucketHigh, rh)
+            bucketLow := math.min(bucketLow, rl)
+        else
+            // a new minute has started — the previous bucket is now a completed 1m candle
+            array.push(m1H, bucketHigh)
+            array.push(m1L, bucketLow)
+            array.push(m1T, int(bucketMinute * 60000))
+            bucketMinute := thisMinute
+            bucketHigh := rh
+            bucketLow := rl
+
+// rolling buffer of the last few real 1-minute bars (independent of chart timeframe)
+var float[] bufHigh = array.new_float()
+var float[] bufLow  = array.new_float()
+var int[]   bufTime = array.new_int()
+
+var bool  fp3pmFound   = false
+var box   fp3pmBox     = na
+var line  fp3pmMidLine = na
+var label fp3pmLabel   = na
+
+var bool  fp330pmFound   = false
+var box   fp330pmBox     = na
+var line  fp330pmMidLine = na
+var label fp330pmLabel   = na
+var float fp330GapSize   = na
+
+var bool  fp15Found   = false
+var box   fp15Box     = na
+var line  fp15MidLine = na
+var label fp15Label   = na
+var float fp15GapSize = na
+
+var bool  fp45Found   = false
+var box   fp45Box     = na
+var line  fp45MidLine = na
+var label fp45Label   = na
+var int   fp45C2T     = na
+var float fp45GapSize = na
+
+var box   lp3pmBox     = na
+var line  lp3pmMidLine = na
+var label lp3pmLabel   = na
+var int   lp3pmC2T     = na
+
+var bool  fvg8pmReached = false
+var bool  lp3pmLocked4pm = false
+var int   latestM1Time  = na
+
+// day-based history retention (0-3 boxes/lines/labels per day) — pruned on the same
+// rolling historyDays window as everything else
+var box[]   fvgHistBoxes     = array.new_box()
+var line[]  fvgHistLines     = array.new_line()
+var label[] fvgHistLabels    = array.new_label()
+var int[]   fvgHistDayCounts = array.new_int()
+
+if newSession and dateOK
+    cnt = 0
+    if not na(fp3pmBox)
+        array.push(fvgHistBoxes, fp3pmBox)
+        array.push(fvgHistLines, fp3pmMidLine)
+        array.push(fvgHistLabels, fp3pmLabel)
+        cnt += 1
+    if not na(fp330pmBox)
+        array.push(fvgHistBoxes, fp330pmBox)
+        array.push(fvgHistLines, fp330pmMidLine)
+        array.push(fvgHistLabels, fp330pmLabel)
+        cnt += 1
+    if not na(fp15Box)
+        array.push(fvgHistBoxes, fp15Box)
+        array.push(fvgHistLines, fp15MidLine)
+        array.push(fvgHistLabels, fp15Label)
+        cnt += 1
+    if not na(fp45Box)
+        array.push(fvgHistBoxes, fp45Box)
+        array.push(fvgHistLines, fp45MidLine)
+        array.push(fvgHistLabels, fp45Label)
+        cnt += 1
+    if not na(lp3pmBox)
+        array.push(fvgHistBoxes, lp3pmBox)
+        array.push(fvgHistLines, lp3pmMidLine)
+        array.push(fvgHistLabels, lp3pmLabel)
+        cnt += 1
+    array.push(fvgHistDayCounts, cnt)
+    if array.size(fvgHistDayCounts) > historyDays
+        n = array.shift(fvgHistDayCounts)
+        if n > 0
+            for i = 1 to n
+                oldFvgBox = array.shift(fvgHistBoxes)
+                box.delete(oldFvgBox)
+                oldFvgLine = array.shift(fvgHistLines)
+                line.delete(oldFvgLine)
+                oldFvgLabel = array.shift(fvgHistLabels)
+                label.delete(oldFvgLabel)
+
+    fp3pmFound     := false
+    fp3pmBox       := na
+    fp3pmMidLine   := na
+    fp3pmLabel     := na
+    fp330pmFound   := false
+    fp330pmBox     := na
+    fp330pmMidLine := na
+    fp330pmLabel   := na
+    fp330GapSize   := na
+    fp15Found      := false
+    fp15Box        := na
+    fp15MidLine    := na
+    fp15Label      := na
+    fp15GapSize    := na
+    fp45Found      := false
+    fp45Box        := na
+    fp45MidLine    := na
+    fp45Label      := na
+    fp45C2T        := na
+    fp45GapSize    := na
+    lp3pmBox       := na
+    lp3pmMidLine   := na
+    lp3pmLabel     := na
+    lp3pmC2T       := na
+    fvg8pmReached  := false
+    lp3pmLocked4pm := false
+
+f_newFvgBox(left, top, right, bottom, txt, bgCol, lineCol) =>
+    bx = box.new(left, top, right, bottom, border_color = na, bgcolor = color.new(bgCol, 59), xloc = xloc.bar_time)
+    mid = (top + bottom) / 2
+    ml = line.new(left, mid, right, mid, color = lineCol, width = 1, style = line.style_dashed, extend = extend.none, xloc = xloc.bar_time)
+    lb = label.new(right + fvgLabelGapMs, mid, txt, style = label.style_label_left, color = color.new(lineCol, 100), textcolor = lineCol, size = size.small, xloc = xloc.bar_time)
+    [bx, ml, lb]
+
+// process each real 1-minute bar inside the current chart bar (usually just 1 on a 1m
+// chart, possibly several on a higher timeframe chart)
+if showFVG and dateOK and array.size(m1H) > 0
+    for i = 0 to array.size(m1H) - 1
+        array.push(bufHigh, array.get(m1H, i))
+        array.push(bufLow, array.get(m1L, i))
+        array.push(bufTime, array.get(m1T, i))
+        if array.size(bufHigh) > 10
+            array.shift(bufHigh)
+            array.shift(bufLow)
+            array.shift(bufTime)
+
+        sz = array.size(bufHigh)
+        if sz >= 3
+            curH = array.get(bufHigh, sz - 1)
+            curL = array.get(bufLow, sz - 1)
+            curT = array.get(bufTime, sz - 1)
+            c1H  = array.get(bufHigh, sz - 3)
+            c1L  = array.get(bufLow, sz - 3)
+            c1T  = array.get(bufTime, sz - 3)
+            c2T  = array.get(bufTime, sz - 2)
+            latestM1Time := curT
+
+            isBull = curL > c1H
+            isBear = curH < c1L
+            if isBull or isBear
+                gTop    = isBull ? curL : c1L
+                gBottom = isBull ? c1H : curH
+                // window checks anchor to candle 2's (the middle/displacement candle's)
+                // own recorded time, not candle 3's completion time — the earliest valid
+                // candle 2 is exactly on the hour/half-hour mark itself (e.g. 3:00, 3:30)
+                nyMin = hour(c2T, "America/New_York") * 60 + minute(c2T, "America/New_York")
+                rightEdge = curT + fvgLookAheadMs
+
+                if not fp3pmFound and nyMin >= 15 * 60
+                    [bx, ml, lb] = f_newFvgBox(c1T, gTop, rightEdge, gBottom, "1m FPFVG 3pm", colFVGBg, colFVGLine)
+                    fp3pmBox := bx
+                    fp3pmMidLine := ml
+                    fp3pmLabel := lb
+                    fp3pmFound := true
+
+                if nyMin >= 15 * 60 + 15 and nyMin <= 15 * 60 + 25
+                    gapSize15 = gTop - gBottom
+                    if not fp15Found or gapSize15 > fp15GapSize
+                        if not na(fp15Box)
+                            box.delete(fp15Box)
+                            line.delete(fp15MidLine)
+                            label.delete(fp15Label)
+                        [bx, ml, lb] = f_newFvgBox(c1T, gTop, rightEdge, gBottom, "1m FPFVG 3:15", colFVG2, colFVG2)
+                        fp15Box := bx
+                        fp15MidLine := ml
+                        fp15Label := lb
+                        fp15Found := true
+                        fp15GapSize := gapSize15
+
+                if nyMin >= 15 * 60 + 30 and nyMin <= 15 * 60 + 40
+                    gapSize30 = gTop - gBottom
+                    if not fp330pmFound or gapSize30 > fp330GapSize
+                        if not na(fp330pmBox)
+                            box.delete(fp330pmBox)
+                            line.delete(fp330pmMidLine)
+                            label.delete(fp330pmLabel)
+                        [bx, ml, lb] = f_newFvgBox(c1T, gTop, rightEdge, gBottom, "1m FPFVG 3:30pm", colFVGBg, colFVGLine)
+                        fp330pmBox := bx
+                        fp330pmMidLine := ml
+                        fp330pmLabel := lb
+                        fp330pmFound := true
+                        fp330GapSize := gapSize30
+
+                if nyMin >= 15 * 60 + 45 and nyMin <= 15 * 60 + 50
+                    gapSize45 = gTop - gBottom
+                    if not fp45Found or gapSize45 > fp45GapSize
+                        if not na(fp45Box)
+                            box.delete(fp45Box)
+                            line.delete(fp45MidLine)
+                            label.delete(fp45Label)
+                        [bx, ml, lb] = f_newFvgBox(c1T, gTop, rightEdge, gBottom, "1m FPFVG 3:45", colFVG2, colFVG2)
+                        fp45Box := bx
+                        fp45MidLine := ml
+                        fp45Label := lb
+                        fp45Found := true
+                        fp45C2T := c2T
+                        fp45GapSize := gapSize45
+
+                if nyMin >= 15 * 60 + 50 and nyMin < 16 * 60
+                    if not na(lp3pmBox)
+                        box.delete(lp3pmBox)
+                        line.delete(lp3pmMidLine)
+                        label.delete(lp3pmLabel)
+                    [bx, ml, lb] = f_newFvgBox(c1T, gTop, rightEdge, gBottom, "1m LPFVG 3pm", colFVGBg, colFVGLine)
+                    lp3pmBox := bx
+                    lp3pmMidLine := ml
+                    lp3pmLabel := lb
+                    lp3pmC2T := c2T
+
+// once 4pm is reached, if LPFVG's final (never-replaced) candidate is the exact same FVG
+// that FPFVG 3:45 locked onto (only possible at the one shared moment, :50, since their
+// windows only overlap there), LPFVG overrides — remove the redundant FPFVG 3:45 box so
+// only the LPFVG one remains
+if dateOK and not lp3pmLocked4pm and not na(latestM1Time)
+    nyMin4pmCheck = hour(latestM1Time, "America/New_York") * 60 + minute(latestM1Time, "America/New_York")
+    if nyMin4pmCheck >= 16 * 60
+        lp3pmLocked4pm := true
+        if not na(fp45C2T) and not na(lp3pmC2T) and fp45C2T == lp3pmC2T and not na(fp45Box)
+            box.delete(fp45Box)
+            line.delete(fp45MidLine)
+            label.delete(fp45Label)
+            fp45Box := na
+            fp45MidLine := na
+            fp45Label := na
+
+// advance all three toward 8pm, or freeze them once actually reached — time-based, not
+// bar-count-based, so the 5-6pm gap can't throw this off
+if dateOK and not fvg8pmReached and not na(latestM1Time)
+    nyMinNow = hour(latestM1Time, "America/New_York") * 60 + minute(latestM1Time, "America/New_York")
+    if nyMinNow >= fvgCutoffMinuteOfDay
+        fvg8pmReached := true
+        if not na(fp3pmBox)
+            box.set_right(fp3pmBox, latestM1Time)
+            line.set_x2(fp3pmMidLine, latestM1Time)
+            label.set_x(fp3pmLabel, latestM1Time + fvgLabelGapMs)
+        if not na(fp330pmBox)
+            box.set_right(fp330pmBox, latestM1Time)
+            line.set_x2(fp330pmMidLine, latestM1Time)
+            label.set_x(fp330pmLabel, latestM1Time + fvgLabelGapMs)
+        if not na(fp15Box)
+            box.set_right(fp15Box, latestM1Time)
+            line.set_x2(fp15MidLine, latestM1Time)
+            label.set_x(fp15Label, latestM1Time + fvgLabelGapMs)
+        if not na(fp45Box)
+            box.set_right(fp45Box, latestM1Time)
+            line.set_x2(fp45MidLine, latestM1Time)
+            label.set_x(fp45Label, latestM1Time + fvgLabelGapMs)
+        if not na(lp3pmBox)
+            box.set_right(lp3pmBox, latestM1Time)
+            line.set_x2(lp3pmMidLine, latestM1Time)
+            label.set_x(lp3pmLabel, latestM1Time + fvgLabelGapMs)
+    else
+        rightEdgeNow = latestM1Time + fvgLookAheadMs
+        if not na(fp3pmBox)
+            box.set_right(fp3pmBox, rightEdgeNow)
+            line.set_x2(fp3pmMidLine, rightEdgeNow)
+            label.set_x(fp3pmLabel, rightEdgeNow + fvgLabelGapMs)
+        if not na(fp330pmBox)
+            box.set_right(fp330pmBox, rightEdgeNow)
+            line.set_x2(fp330pmMidLine, rightEdgeNow)
+            label.set_x(fp330pmLabel, rightEdgeNow + fvgLabelGapMs)
+        if not na(fp15Box)
+            box.set_right(fp15Box, rightEdgeNow)
+            line.set_x2(fp15MidLine, rightEdgeNow)
+            label.set_x(fp15Label, rightEdgeNow + fvgLabelGapMs)
+        if not na(fp45Box)
+            box.set_right(fp45Box, rightEdgeNow)
+            line.set_x2(fp45MidLine, rightEdgeNow)
+            label.set_x(fp45Label, rightEdgeNow + fvgLabelGapMs)
+        if not na(lp3pmBox)
+            box.set_right(lp3pmBox, rightEdgeNow)
+            line.set_x2(lp3pmMidLine, rightEdgeNow)
+            label.set_x(lp3pmLabel, rightEdgeNow + fvgLabelGapMs)
+
+
+// =====================================================================================
+// ADVANCE ALL ACTIVE LINES/LABELS TO STAY ~lookAheadBars AHEAD OF PRICE
+// This replaces relying on Pine's extend.right (which behaves inconsistently across a
+// session gap, like the RTH-close-to-Globex-reopen gap, especially live vs. replay).
+// Instead, every active (unfrozen) line's right edge and every label's x position get
+// explicitly recomputed each bar as a fixed offset from the current bar — so nothing
+// depends on how far apart bars are in time, only on how many bars have actually printed.
+// =====================================================================================
+if rangeActive and dateOK and not reachedDisplayEnd
+    if not na(rangeBox)
+        box.set_right(rangeBox, bar_index + lookAheadBars)
+    if not na(hiLine)
+        line.set_x2(hiLine, bar_index + lookAheadBars)
+    if not na(loLine)
+        line.set_x2(loLine, bar_index + lookAheadBars)
+    if not na(hiLabel)
+        label.set_x(hiLabel, bar_index + lookAheadBars + labelGap)
+    if not na(loLabel)
+        label.set_x(loLabel, bar_index + lookAheadBars + labelGap)
+    for ln in fibLines
+        if not na(ln)
+            line.set_x2(ln, bar_index + lookAheadBars)
+    for lb in fibLabels
+        if not na(lb)
+            label.set_x(lb, bar_index + lookAheadBars + labelGap)
+    for ln in dynLinesToday
+        if not na(ln)
+            line.set_x2(ln, bar_index + lookAheadBars)
+    if not na(reversalLevelLine)
+        line.set_x2(reversalLevelLine, bar_index + lookAheadBars)
+    if not na(reversalLevelLabel)
+        label.set_x(reversalLevelLabel, bar_index + lookAheadBars + labelGap)
+    if not na(reversalHighLine)
+        line.set_x2(reversalHighLine, bar_index + lookAheadBars)
+    if not na(reversalHighLabel)
+        label.set_x(reversalHighLabel, bar_index + lookAheadBars + labelGap)
+
+
+// =====================================================================================
+// STOP EXTENDING LINES AT THE DISPLAY CUTOFF (default 4:25pm NY)
+// Lines already use extend.none, so freezing just means stopping the per-bar advance
+// above and pinning everything's right edge to the actual cutoff bar instead of
+// bar_index + lookAheadBars — the label text then begins exactly where the line ends.
+// =====================================================================================
+if justReachedDisplayEnd and dateOK
     if not na(rangeBox)
         box.set_right(rangeBox, bar_index)
-        box.set_extend(rangeBox, extend.none)
     if not na(hiLine)
         line.set_x2(hiLine, bar_index)
-        line.set_extend(hiLine, extend.none)
     if not na(loLine)
         line.set_x2(loLine, bar_index)
-        line.set_extend(loLine, extend.none)
     if not na(hiLabel)
         label.set_x(hiLabel, bar_index + labelGap)
     if not na(loLabel)
@@ -352,12 +1137,18 @@ if reachedDisplayEnd and dateOK
     for ln in fibLines
         if not na(ln)
             line.set_x2(ln, bar_index)
-            line.set_extend(ln, extend.none)
     for lb in fibLabels
         if not na(lb)
             label.set_x(lb, bar_index + labelGap)
     for ln in dynLinesToday
         if not na(ln)
             line.set_x2(ln, bar_index)
-            line.set_extend(ln, extend.none)
+    if not na(reversalLevelLine)
+        line.set_x2(reversalLevelLine, bar_index)
+    if not na(reversalLevelLabel)
+        label.set_x(reversalLevelLabel, bar_index + labelGap)
+    if not na(reversalHighLine)
+        line.set_x2(reversalHighLine, bar_index)
+    if not na(reversalHighLabel)
+        label.set_x(reversalHighLabel, bar_index + labelGap)
     rangeActive := false
