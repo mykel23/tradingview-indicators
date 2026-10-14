@@ -4,6 +4,9 @@ A TradingView overlay (Pine Script v5) for futures such as MNQ. It marks the **f
 
 A fair value gap is a three-candle pattern where the first and third candles' wicks don't overlap, leaving a price gap. Each one is drawn as a box with a dashed midline and a label, and extended until that session's end time.
 
+![FPFVG / LPFVG Session Suite on a 1-minute MNQ chart](screenshot.png)
+*MNQ, 1-minute chart: 6pm, 7pm and Tokyo session gaps, with their midlines and labels.*
+
 ## Sessions and slots
 
 There are 13 sessions (New York time): **Midnight, 1am, 2am, 3am, 6am, 7am, 8am, 9am, 10am, 6pm, 7pm, Tokyo (8pm), 10pm.**
@@ -66,6 +69,7 @@ The commit history shows every step: 20 versions.
 - **Pine Script limits:** the script can draw up to 200 boxes and 200 labels. With all 65 slots on, older days drop off the chart sooner, so turn off slots you don't use.
 - **History depth:** how far back true 1-minute data is available depends on your TradingView plan. Bars without reliable 1-minute data are skipped rather than guessed.
 - **Session times are fixed** to New York time.
+- **Labels can overlap** when two slots in the same session find gaps at nearly the same price (for example, 6pm :45 and the 6pm LPFVG).
 
 ## Credits
 
