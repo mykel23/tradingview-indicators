@@ -1,6 +1,6 @@
 # TradingView Indicators
 
-Custom TradingView indicators written in Pine Script (v5 and v6) for futures charting (MNQ / MES). They mark session-based price levels so I can study how price reacts around them.
+Custom TradingView indicators written in Pine Script (v5 and v6) for futures charting (MNQ / MES). They mark session-based price levels and fair value gaps so I can study how price reacts around them.
 
 ![NY Pre-Session Dealing Range on a 5-minute MNQ chart](ny-presession-dealing-range/screenshot.png)
 
@@ -11,7 +11,7 @@ Custom TradingView indicators written in Pine Script (v5 and v6) for futures cha
 | Indicator | What it does |
 |---|---|
 | [NY Pre-Session Dealing Range](ny-presession-dealing-range/) | Marks the 7–9am New York range with its midpoint, standard-deviation extensions, octant levels, and the 9:30 and midnight opens |
-| [FPFVG / LPFVG Session Suite](fpfvg-lpfvg-session-suite/) | Marks the first and last fair value gaps in 13 New York sessions, five slots each, detected from true 1-minute data on any chart timeframe. 20 versions in the history. |
+| [FPFVG / LPFVG Session Suite](fpfvg-lpfvg-session-suite/) | Marks up to five fair value gaps per hour in 13 New York sessions: the first gap (FPFVG), the :15, :30 and :45 gaps, and the last gap (LPFVG). Detected from true 1-minute data on any chart timeframe. 20 versions in the history. |
 
 More indicators are being added.
 

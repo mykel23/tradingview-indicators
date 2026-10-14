@@ -1,6 +1,6 @@
 # FPFVG / LPFVG Session Suite
 
-A TradingView overlay (Pine Script v5) for futures such as MNQ. It marks the **first presented fair value gap (FPFVG)** and **last presented fair value gap (LPFVG)** in each of 13 New York-time sessions, using true 1-minute data whatever timeframe the chart is on.
+A TradingView overlay (Pine Script v5) for futures such as MNQ. In each of 13 New York-time sessions it marks up to five fair value gaps across the hour: the **first presented fair value gap (FPFVG)** at the top of the hour, the gaps that form in the **:15, :30 and :45** quarters, and the **last presented fair value gap (LPFVG)** at the end of the hour. It uses true 1-minute data whatever timeframe the chart is on.
 
 A fair value gap is a three-candle pattern where the first and third candles' wicks don't overlap, leaving a price gap. Each one is drawn as a box with a dashed midline and a label, and extended until that session's end time.
 
