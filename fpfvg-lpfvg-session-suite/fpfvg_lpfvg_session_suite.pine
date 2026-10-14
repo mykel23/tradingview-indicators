@@ -88,6 +88,7 @@ type SessCfg
     bool allowOverride  // true = keep the biggest-gap match found within the window, not just the first
     bool isFortyFive    // true = this is a :45 tracker (gets the special :54 exception)
     bool isLPshared      // true = this is an LPFVG that shares its window with a :45 tracker
+    int colorCat          // 0 = First/Last (pale gold), 1 = :30 (amber-gold), 2 = :15/:45 (bronze-gold)
 
 type SessState
     box b = na
@@ -105,40 +106,40 @@ type SessState
 var SessCfg[] cfgs = array.new<SessCfg>()
 var SessState[] states = array.new<SessState>()
 
-f_add(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast, _ovr, _is45, _isLP) =>
-    array.push(cfgs, SessCfg.new(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast, _ovr, _is45, _isLP))
+f_add(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast, _ovr, _is45, _isLP, _cat) =>
+    array.push(cfgs, SessCfg.new(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast, _ovr, _is45, _isLP, _cat))
     array.push(states, SessState.new())
 
 if barstate.isfirst
-    f_add("FPFVG Midnight", 0, 0, 15, showMidnight and i_Midnight, 1, 0, 0, false, false, false, false)
-    f_add("FPFVG 1am", 1, 0, 15, show1am and i_1am, 0, 10, 0, false, false, false, false)
-    f_add("FPFVG 2am", 2, 0, 15, show2am and i_2am, 0, 10, 0, false, false, false, false)
-    f_add("FPFVG 3am", 3, 0, 15, show3am and i_3am, 0, 10, 0, false, false, false, false)
-    f_add("FPFVG 6am", 6, 0, 60, show6am and i_6am_F, 0, 12, 0, false, false, false, false)
-    f_add("LPFVG 6am", 6, 0, 60, show6am and i_6am_L, 0, 12, 0, true, false, false, false)
-    f_add("FPFVG 7am", 7, 0, 15, show7am and i_7am, 0, 10, 0, false, false, false, false)
-    f_add("FPFVG 8am", 8, 0, 15, show8am and i_8am_00, 0, 10, 0, false, false, false, false)
-    f_add("FPFVG 8am :30", 8, 30, 15, show8am and i_8am_30, 0, 10, 0, false, false, false, false)
-    f_add("FPFVG 9am", 9, 0, 15, show9am and i_9am_00, 0, 10, 0, false, false, false, false)
-    f_add("FPFVG 9am :15", 9, 15, 10, show9am and i_9am_15, 0, 10, 0, false, true, false, false)
-    f_add("FPFVG 9am :30", 9, 30, 10, show9am and i_9am_30, 1, 0, 0, false, true, false, false)
-    f_add("FPFVG 9am :45", 9, 45, 5, show9am and i_9am_45, 0, 10, 0, false, true, true, false)
-    f_add("LPFVG 9am", 9, 54, 6, show9am and i_9am_LP, 0, 10, 0, true, false, false, true)
-    f_add("FPFVG 10am", 10, 0, 15, show10am and i_10am_00, 1, 0, 0, false, false, false, false)
-    f_add("FPFVG 10am :15", 10, 15, 10, show10am and i_10am_15, 0, 12, 0, false, true, false, false)
-    f_add("FPFVG 10am :30", 10, 30, 10, show10am and i_10am_30, 0, 12, 0, false, true, false, false)
-    f_add("FPFVG 10am :45", 10, 45, 5, show10am and i_10am_45, 0, 12, 0, false, true, true, false)
-    f_add("LPFVG 10am", 10, 54, 6, show10am and i_10am_LP, 0, 12, 0, true, false, false, true)
-    f_add("FPFVG 6pm", 18, 0, 60, show6pm and i_6pm_F, 0, 4, 0, false, false, false, false)
-    f_add("LPFVG 6pm", 18, 0, 60, show6pm and i_6pm_L, 0, 4, 0, true, false, false, false)
-    f_add("FPFVG 7pm", 19, 0, 60, show7pm and i_7pm_F, 0, 23, 0, false, false, false, false)
-    f_add("LPFVG 7pm", 19, 0, 60, show7pm and i_7pm_L, 0, 23, 0, true, false, false, false)
-    f_add("FPFVG Tokyo", 20, 0, 15, showTokyo and i_Tokyo_00, 0, 6, 0, false, false, false, false)
-    f_add("FPFVG Tokyo :15", 20, 15, 10, showTokyo and i_Tokyo_15, 0, 0, 0, false, true, false, false)
-    f_add("FPFVG Tokyo :30", 20, 30, 10, showTokyo and i_Tokyo_30, 0, 6, 0, false, true, false, false)
-    f_add("FPFVG Tokyo :45", 20, 45, 5, showTokyo and i_Tokyo_45, 0, 0, 0, false, true, true, false)
-    f_add("LPFVG Tokyo", 20, 54, 6, showTokyo and i_Tokyo_LP, 0, 6, 0, true, false, false, true)
-    f_add("FPFVG 10pm", 22, 0, 15, show10pm and i_10pm, 0, 6, 0, false, false, false, false)
+    f_add("FPFVG Midnight", 0, 0, 15, showMidnight and i_Midnight, 1, 0, 0, false, false, false, false, 0)
+    f_add("FPFVG 1am", 1, 0, 15, show1am and i_1am, 0, 10, 0, false, false, false, false, 0)
+    f_add("FPFVG 2am", 2, 0, 15, show2am and i_2am, 0, 10, 0, false, false, false, false, 0)
+    f_add("FPFVG 3am", 3, 0, 15, show3am and i_3am, 0, 10, 0, false, false, false, false, 0)
+    f_add("FPFVG 6am", 6, 0, 60, show6am and i_6am_F, 0, 12, 0, false, false, false, false, 0)
+    f_add("LPFVG 6am", 6, 0, 60, show6am and i_6am_L, 0, 12, 0, true, false, false, false, 0)
+    f_add("FPFVG 7am", 7, 0, 15, show7am and i_7am, 0, 10, 0, false, false, false, false, 0)
+    f_add("FPFVG 8am", 8, 0, 15, show8am and i_8am_00, 0, 10, 0, false, false, false, false, 0)
+    f_add("FPFVG 8am :30", 8, 30, 15, show8am and i_8am_30, 0, 10, 0, false, false, false, false, 1)
+    f_add("FPFVG 9am", 9, 0, 15, show9am and i_9am_00, 0, 10, 0, false, false, false, false, 0)
+    f_add("FPFVG 9am :15", 9, 15, 10, show9am and i_9am_15, 0, 10, 0, false, true, false, false, 2)
+    f_add("FPFVG 9am :30", 9, 30, 10, show9am and i_9am_30, 1, 0, 0, false, true, false, false, 1)
+    f_add("FPFVG 9am :45", 9, 45, 5, show9am and i_9am_45, 0, 10, 0, false, true, true, false, 2)
+    f_add("LPFVG 9am", 9, 54, 6, show9am and i_9am_LP, 0, 10, 0, true, false, false, true, 0)
+    f_add("FPFVG 10am", 10, 0, 15, show10am and i_10am_00, 1, 0, 0, false, false, false, false, 0)
+    f_add("FPFVG 10am :15", 10, 15, 10, show10am and i_10am_15, 0, 12, 0, false, true, false, false, 2)
+    f_add("FPFVG 10am :30", 10, 30, 10, show10am and i_10am_30, 0, 12, 0, false, true, false, false, 1)
+    f_add("FPFVG 10am :45", 10, 45, 5, show10am and i_10am_45, 0, 12, 0, false, true, true, false, 2)
+    f_add("LPFVG 10am", 10, 54, 6, show10am and i_10am_LP, 0, 12, 0, true, false, false, true, 0)
+    f_add("FPFVG 6pm", 18, 0, 60, show6pm and i_6pm_F, 0, 4, 0, false, false, false, false, 0)
+    f_add("LPFVG 6pm", 18, 0, 60, show6pm and i_6pm_L, 0, 4, 0, true, false, false, false, 0)
+    f_add("FPFVG 7pm", 19, 0, 60, show7pm and i_7pm_F, 0, 23, 0, false, false, false, false, 0)
+    f_add("LPFVG 7pm", 19, 0, 60, show7pm and i_7pm_L, 0, 23, 0, true, false, false, false, 0)
+    f_add("FPFVG Tokyo", 20, 0, 15, showTokyo and i_Tokyo_00, 0, 6, 0, false, false, false, false, 0)
+    f_add("FPFVG Tokyo :15", 20, 15, 10, showTokyo and i_Tokyo_15, 0, 0, 0, false, true, false, false, 2)
+    f_add("FPFVG Tokyo :30", 20, 30, 10, showTokyo and i_Tokyo_30, 0, 6, 0, false, true, false, false, 1)
+    f_add("FPFVG Tokyo :45", 20, 45, 5, showTokyo and i_Tokyo_45, 0, 0, 0, false, true, true, false, 2)
+    f_add("LPFVG Tokyo", 20, 54, 6, showTokyo and i_Tokyo_LP, 0, 6, 0, true, false, false, true, 0)
+    f_add("FPFVG 10pm", 22, 0, 15, show10pm and i_10pm, 0, 6, 0, false, false, false, false, 0)
 
 var int barCount = 0
 bull = false
@@ -219,8 +220,13 @@ if newCount >= 3 and processedUpTo < newCount
         // or an overnight/weekend break): only treat this as a valid 3-candle pattern if
         // candle 1 and candle 3 are genuinely exactly 2 minutes apart
         isAdjacent = (t3chk - t1chk) == 120000
-        bull := isAdjacent and l3 > h1
-        bear := isAdjacent and h3 < l1
+        // require more than 1 tick of actual gap — a single-tick gap is noise, not a real FVG
+        rawBull = isAdjacent and l3 > h1
+        rawBear = isAdjacent and h3 < l1
+        rawGapSize = rawBull ? (l3 - h1) : rawBear ? (l1 - h3) : 0.0
+        meetsMinGap = rawGapSize > syminfo.mintick
+        bull := rawBull and meetsMinGap
+        bear := rawBear and meetsMinGap
 
         if bull or bear
             originTime = array.get(hT, idx - 2)   // candle 1 — anchors both the box's left edge and its time-window
@@ -322,6 +328,10 @@ lookAheadBars = 10
 labelGap = 3   // small time-gap so label text doesn't touch the line, same convention as the dealing range script
 gapMs = labelGap * timeframe.in_seconds(timeframe.period) * 1000
 
+// color categories: 0 = First/Last (pale gold, dark text), 1 = :30 (amber-gold), 2 = :15/:45 (bronze-gold)
+f_boxColor(cat) => cat == 1 ? #f0c419 : cat == 2 ? #d4a017 : #eeec82
+f_textColor(cat) => cat == 0 ? f_boxColor(cat) : cat == 1 ? #a8790a : f_boxColor(cat)
+
 if barstate.isconfirmed or barstate.isrealtime
     for s = 0 to array.size(cfgs) - 1
         cfg = array.get(cfgs, s)
@@ -331,15 +341,17 @@ if barstate.isconfirmed or barstate.isrealtime
             capped = not na(st.extTarget) and rightEdge >= st.extTarget
             drawRight = capped ? st.extTarget : rightEdge
             midPrice = (st.top + st.bot) / 2
+            boxCol = f_boxColor(cfg.colorCat)
+            txtCol = f_textColor(cfg.colorCat)
 
             if na(st.b)
                 st.b := box.new(left=st.left, top=st.top, right=drawRight, bottom=st.bot,
-                     border_color=color.new(#eeec82, 25), bgcolor=color.new(#eeec82, 80),
+                     border_color=color.new(boxCol, 25), bgcolor=color.new(boxCol, 80),
                      border_width=1, xloc=xloc.bar_time)
                 st.mid := line.new(x1=st.left, y1=midPrice, x2=drawRight, y2=midPrice,
-                     color=color.new(#eeec82, 25), style=line.style_dashed, width=1, xloc=xloc.bar_time)
+                     color=color.new(boxCol, 25), style=line.style_dashed, width=1, xloc=xloc.bar_time)
                 st.lb := label.new(x=drawRight + gapMs, y=midPrice, text=cfg.label, style=label.style_label_left,
-                     color=color.new(color.black, 100), textcolor=color.new(#eeec82, 0), size=size.small, xloc=xloc.bar_time)
+                     color=color.new(color.black, 100), textcolor=color.new(txtCol, 0), size=size.small, xloc=xloc.bar_time)
             else
                 box.set_right(st.b, drawRight)
                 line.set_x2(st.mid, drawRight)
