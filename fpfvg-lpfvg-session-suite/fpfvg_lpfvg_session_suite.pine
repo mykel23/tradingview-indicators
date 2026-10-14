@@ -1,5 +1,5 @@
 // @version=5
-indicator("Increment 6 - Batch 5 (+ :54 Exception)", overlay=true, max_boxes_count=200, max_labels_count=200)
+indicator("Increment 6 - Batch 6 (LPFVG 54-59)", overlay=true, max_boxes_count=200, max_labels_count=200)
 
 // Scales up the PROVEN Increment 3/4 pattern (first-FVG-found-wins, per-day
 // reset, dynamic 10-bar-ahead extension, freeze at cap) to all 11 "simple"
@@ -123,12 +123,12 @@ if barstate.isfirst
     f_add("FPFVG 9am :15", 9, 15, 10, show9am and i_9am_15, 0, 10, 0, false, true, false, false)
     f_add("FPFVG 9am :30", 9, 30, 10, show9am and i_9am_30, 1, 0, 0, false, true, false, false)
     f_add("FPFVG 9am :45", 9, 45, 5, show9am and i_9am_45, 0, 10, 0, false, true, true, false)
-    f_add("LPFVG 9am", 9, 45, 5, show9am and i_9am_LP, 0, 10, 0, true, false, false, true)
+    f_add("LPFVG 9am", 9, 54, 6, show9am and i_9am_LP, 0, 10, 0, true, false, false, true)
     f_add("FPFVG 10am", 10, 0, 15, show10am and i_10am_00, 1, 0, 0, false, false, false, false)
     f_add("FPFVG 10am :15", 10, 15, 10, show10am and i_10am_15, 0, 11, 0, false, true, false, false)
     f_add("FPFVG 10am :30", 10, 30, 10, show10am and i_10am_30, 0, 11, 0, false, true, false, false)
     f_add("FPFVG 10am :45", 10, 45, 5, show10am and i_10am_45, 0, 11, 0, false, true, true, false)
-    f_add("LPFVG 10am", 10, 45, 5, show10am and i_10am_LP, 0, 11, 0, true, false, false, true)
+    f_add("LPFVG 10am", 10, 54, 6, show10am and i_10am_LP, 0, 11, 0, true, false, false, true)
     f_add("FPFVG 6pm", 18, 0, 60, show6pm and i_6pm_F, 0, 4, 0, false, false, false, false)
     f_add("LPFVG 6pm", 18, 0, 60, show6pm and i_6pm_L, 0, 4, 0, true, false, false, false)
     f_add("FPFVG 7pm", 19, 0, 60, show7pm and i_7pm_F, 0, 23, 0, false, false, false, false)
@@ -137,7 +137,7 @@ if barstate.isfirst
     f_add("FPFVG Tokyo :15", 20, 15, 10, showTokyo and i_Tokyo_15, 0, 0, 0, false, true, false, false)
     f_add("FPFVG Tokyo :30", 20, 30, 10, showTokyo and i_Tokyo_30, 0, 6, 0, false, true, false, false)
     f_add("FPFVG Tokyo :45", 20, 45, 5, showTokyo and i_Tokyo_45, 0, 0, 0, false, true, true, false)
-    f_add("LPFVG Tokyo", 20, 45, 5, showTokyo and i_Tokyo_LP, 0, 6, 0, true, false, false, true)
+    f_add("LPFVG Tokyo", 20, 54, 6, showTokyo and i_Tokyo_LP, 0, 6, 0, true, false, false, true)
     f_add("FPFVG 10pm", 22, 0, 15, show10pm and i_10pm, 0, 6, 0, false, false, false, false)
 
 var int barCount = 0
@@ -214,22 +214,21 @@ if barstate.isconfirmed
 
                     // Exception: for the :45 trackers specifically, a bigger-displacement
                     // FVG whose origin lands exactly at :54 overrides the :45 pick even
-                    // though it's outside the normal 45-50 seek window — UNLESS that same
-                    // :54 gap is already the one LPFVG independently holds (LPFVG's window
-                    // stays 45-50 so this can't actually happen today, but guarded anyway).
+                    // though it's outside the normal 45-50 seek window. But :54 is also
+                    // where LPFVG's own window (54-59) begins — so whenever the paired
+                    // LPFVG tracker is enabled, we defer to it entirely (it'll naturally
+                    // claim that same candle via its own window logic below, and gets the
+                    // "Last" label). This override only fires as a fallback when LPFVG is
+                    // toggled off for that hour.
                     if cfg.isFortyFive and not isNewDay and st.day == dayKey
                         is54 = momNY == (cfg.startH * 60 + 54)
                         if is54 and (not st.active or gapSizeNow > st.gapSize)
-                            // find the paired LPFVG entry (same startH/startM) to check
-                            // it hasn't already claimed this exact gap
-                            lpHoldsIt = false
+                            lpEnabled = false
                             for p = 0 to array.size(cfgs) - 1
                                 pcfg = array.get(cfgs, p)
-                                if pcfg.isLPshared and pcfg.startH == cfg.startH and pcfg.startM == cfg.startM
-                                    pst = array.get(states, p)
-                                    if pst.active and pst.day == dayKey and pst.left == originTime
-                                        lpHoldsIt := true
-                            if not lpHoldsIt
+                                if pcfg.isLPshared and pcfg.startH == cfg.startH and pcfg.show
+                                    lpEnabled := true
+                            if not lpEnabled
                                 if st.active and not na(st.b)
                                     box.delete(st.b)
                                     line.delete(st.mid)
