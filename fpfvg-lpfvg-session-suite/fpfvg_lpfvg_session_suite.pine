@@ -145,11 +145,18 @@ var int barCount = 0
 bull = false
 bear = false
 
-// FVG detection runs on TRUE 1-minute data regardless of chart timeframe:
-// chart coarser than 1m -> pull real 1-minute intrabars via request.security_lower_tf;
-// chart 1m (or finer) -> use the chart's own bars.
+// FVG detection must always run on TRUE 1-minute data, regardless of the chart's own
+// timeframe. Three cases:
+//   - chart coarser than 1m (5m, 15m, ...): pull real 1-minute intrabars via
+//     request.security_lower_tf
+//   - chart exactly 1m: use the chart's own bars directly
+//   - chart finer than 1m (30s, 15s, ...): use the chart's own bars, but AGGREGATE them
+//     into real 1-minute buckets ourselves (floor each bar's time to the minute, merge
+//     high/low until the minute rolls over) rather than treating each sub-minute bar as
+//     if it were its own full 1-minute candle
 chartTFSeconds = timeframe.in_seconds(timeframe.period)
 useLTF = chartTFSeconds > 60
+subMinute = chartTFSeconds > 0 and chartTFSeconds < 60
 
 var int[]   lt_time  = array.new<int>()
 var float[] lt_high  = array.new<float>()
@@ -165,6 +172,10 @@ var int[]   hT = array.new<int>()
 var float[] hH = array.new<float>()
 var float[] hL = array.new<float>()
 var int lastAppendedT = na
+
+var float bucketHigh = na
+var float bucketLow  = na
+var int   bucketMinute = na
 
 if useLTF
     if barstate.isconfirmed or barstate.isrealtime
@@ -185,6 +196,29 @@ if useLTF
                     array.push(hH, array.get(lt_high, i))
                     array.push(hL, array.get(lt_low, i))
                     lastAppendedT := t_i
+else if subMinute
+    // aggregate the chart's own sub-1-minute bars into real 1-minute buckets. A bucket is
+    // only pushed to the history once we see a bar belonging to the NEXT minute — meaning
+    // the previous bucket is now genuinely complete.
+    if barstate.isconfirmed
+        thisMinute = int(math.floor(time / 60000.0))
+        if na(bucketMinute)
+            bucketMinute := thisMinute
+            bucketHigh := high
+            bucketLow := low
+        else if thisMinute == bucketMinute
+            bucketHigh := math.max(bucketHigh, high)
+            bucketLow := math.min(bucketLow, low)
+        else
+            completedT = int(bucketMinute * 60000)
+            if na(lastAppendedT) or completedT > lastAppendedT
+                array.push(hT, completedT)
+                array.push(hH, bucketHigh)
+                array.push(hL, bucketLow)
+                lastAppendedT := completedT
+            bucketMinute := thisMinute
+            bucketHigh := high
+            bucketLow := low
 else
     if barstate.isconfirmed
         t_i = time
