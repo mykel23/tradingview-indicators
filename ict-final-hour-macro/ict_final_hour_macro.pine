@@ -1,0 +1,403 @@
+//@version=6
+indicator("ICT Final Hour Macro + SMT (v1)", shorttitle="FH Macro/SMT", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500)
+
+// =====================================================================================
+// ICT FINAL HOUR MACRO / SMT INDICATOR — v1
+// -------------------------------------------------------------------------------------
+// Built for MNQ/MES 1-minute charts, based on ICT's "Price Action Chronicles" macro
+// (Market on Close macro, 3:50-4:00pm NY time) inside the Final Hour Dealing Range
+// (3:00-3:50pm NY time).
+//
+// WHAT'S IN THIS VERSION:
+//   - Final Hour Dealing Range detection (high/low box + lines)
+//   - Fib / STDV levels on that range (0, .125, .25, .375, .5(CE), .625, .75, .875, 1,
+//     plus the -0.5 / 1.5 extensions used as the STDV target cap)
+//   - Equal Highs / Equal Lows detection within the range+macro window (3-candle swing
+//     pivots, clustered by tick tolerance: true equal / equal / relative equal), with
+//     the "second point must be higher (lows) / lower (highs)" validity rule from the
+//     transcript
+//   - Liquidity raid/sweep detection: wick pierces a level, body stays on the safe side
+//   - SMT divergence vs. a correlated symbol (auto NQ<->ES, override available) based
+//     on the Final Hour Dealing Range High/Low sweep — matched to the exact same 1m bar
+//   - T1 target (opposite range boundary) with the .5 STDV hard cap
+//   - All range/fib/STDV/equal-highs/equal-lows lines stop extending at 4:25pm NY
+//     (configurable) instead of running to the edge of the chart indefinitely
+//
+// WHAT'S DELIBERATELY NOT IN THIS VERSION YET (per plan — add after this is validated):
+//   - Buy/sell signal markers and the criteria table (top-right)
+//   - Fair value gaps, premium wick / premium sensitivity, PD arrays, octant/quadrant
+//   - SMT comparison at the Equal-Highs/Lows level (v1 only compares the Final Hour
+//     Dealing Range High/Low sweep between symbols — equal-level SMT is a v2 item since
+//     it requires re-running pivot clustering on the correlated symbol's own data)
+//   - T2 (next MOC swing liquidity) auto-detection — flagged in comments below, only a
+//     rough 15m-equivalent pivot approximation is included for now
+// =====================================================================================
+
+
+// =====================================================================================
+// INPUTS
+// =====================================================================================
+grpSession = "Session"
+rangeSessionStr  = input.session("1500-1550", "Final Hour Dealing Range (NY time)", group = grpSession)
+macroSessionStr  = input.session("1550-1600", "Market-on-Close Macro Window (NY time)", group = grpSession)
+
+grpTol = "Equal High/Low Tolerance (in ticks)"
+trueEqualTicks  = input.int(1,  "True Equal (ticks)",              group = grpTol, minval = 0)
+equalTicks      = input.int(10, "Equal (ticks)",                   group = grpTol, minval = 0)
+relEqualTicks   = input.int(20, "Relative Equal - max (ticks)",    group = grpTol, minval = 0)
+relEqualPref    = input.int(15, "Relative Equal - preferred (ticks)", group = grpTol, minval = 0)
+
+grpFib = "Fib / STDV Levels"
+showFib   = input.bool(true,  "Show Fib Levels",        group = grpFib)
+stdvCap   = input.float(0.5,  "STDV Target Cap (fib extension beyond range)", group = grpFib, minval = 0)
+
+grpSMT = "SMT / Correlated Symbol"
+corrSymbolInput = input.symbol("", "Correlated Symbol (blank = auto NQ<->ES)", group = grpSMT)
+showSMT         = input.bool(true, "Show SMT Divergence Lines", group = grpSMT)
+
+grpSweep = "Liquidity Sweep Rules"
+requireBodyInside = input.bool(true, "Require candle body to stay on safe side of raided level", group = grpSweep)
+
+grpTest = "Testing / Replay"
+restrictDate = input.bool(false, "Restrict indicator to a single test date", group = grpTest)
+testDate     = input.time(timestamp("2026-08-03 00:00 -0400"), "Test Date", group = grpTest)
+
+grpDisplay = "Line Display"
+displayEndStr = input.session("1625-1630", "Stop extending lines at (NY time)", group = grpDisplay)
+
+
+// =====================================================================================
+// TIME / SESSION HELPERS
+// =====================================================================================
+inRangeSession = not na(time(timeframe.period, rangeSessionStr, "America/New_York"))
+inMacroSession = not na(time(timeframe.period, macroSessionStr, "America/New_York"))
+inDisplayEnd   = not na(time(timeframe.period, displayEndStr, "America/New_York"))
+reachedDisplayEnd = inDisplayEnd and not inDisplayEnd[1]
+
+dateOK = not restrictDate or
+     (year(time, "America/New_York")       == year(testDate, "America/New_York") and
+      month(time, "America/New_York")      == month(testDate, "America/New_York") and
+      dayofmonth(time, "America/New_York") == dayofmonth(testDate, "America/New_York"))
+
+mintick = syminfo.mintick
+
+
+// =====================================================================================
+// CORRELATED SYMBOL RESOLUTION (auto NQ <-> ES unless overridden)
+// =====================================================================================
+f_autoCorrSymbol() =>
+    root = syminfo.root
+    string result = syminfo.tickerid
+    if str.contains(root, "NQ")
+        result := "CME_MINI:ES1!"
+    else if str.contains(root, "ES")
+        result := "CME_MINI:NQ1!"
+    result
+
+corrSymbol = corrSymbolInput != "" ? corrSymbolInput : f_autoCorrSymbol()
+
+
+// =====================================================================================
+// FINAL HOUR DEALING RANGE TRACKING (primary symbol)
+// =====================================================================================
+var float rangeHigh    = na
+var float rangeLow     = na
+var int   rangeHighBar = na
+var int   rangeLowBar  = na
+var bool  rangeLocked  = false
+var bool  brokeOut     = false
+
+newSession = inRangeSession and not inRangeSession[1]
+
+if newSession and dateOK
+    rangeHigh    := high
+    rangeLow     := low
+    rangeHighBar := bar_index
+    rangeLowBar  := bar_index
+    rangeLocked  := false
+    brokeOut     := false
+
+if inRangeSession and not newSession and dateOK
+    if high > rangeHigh
+        rangeHigh    := high
+        rangeHighBar := bar_index
+    if low < rangeLow
+        rangeLow    := low
+        rangeLowBar := bar_index
+
+sessionJustEnded = inRangeSession[1] and not inRangeSession
+if sessionJustEnded and dateOK
+    rangeLocked := true
+
+// Real breakout = a CLOSE beyond the range after it locks (not just a wick).
+// Once this happens we consider the clean raid/reversal setup invalidated for the day.
+if rangeLocked and dateOK
+    if close > rangeHigh or close < rangeLow
+        brokeOut := true
+
+
+// =====================================================================================
+// DRAW DEALING RANGE BOX + LEVEL LINES
+// =====================================================================================
+var box   rangeBox = na
+var line  hiLine   = na
+var line  loLine   = na
+var label hiLabel  = na
+var label loLabel  = na
+
+if sessionJustEnded and dateOK
+    box.delete(rangeBox)
+    line.delete(hiLine)
+    line.delete(loLine)
+    label.delete(hiLabel)
+    label.delete(loLabel)
+
+    rangeBox := box.new(rangeHighBar, rangeHigh, bar_index, rangeLow,
+         border_color = color.new(color.blue, 60), bgcolor = color.new(color.blue, 92),
+         extend = extend.right)
+
+    hiLine := line.new(rangeHighBar, rangeHigh, bar_index, rangeHigh,
+         color = color.blue, width = 1, extend = extend.right)
+    loLine := line.new(rangeLowBar, rangeLow, bar_index, rangeLow,
+         color = color.blue, width = 1, extend = extend.right)
+
+    hiLabel := label.new(bar_index, rangeHigh, "Final Hour Dealing Range High",
+         style = label.style_label_left, color = color.new(color.blue, 100),
+         textcolor = color.blue, size = size.small)
+    loLabel := label.new(bar_index, rangeLow, "Final Hour Dealing Range Low",
+         style = label.style_label_left, color = color.new(color.blue, 100),
+         textcolor = color.blue, size = size.small)
+
+
+// =====================================================================================
+// FIB / STDV LEVELS ON THE RANGE
+// (convention: level 0 = rangeHigh, level 1 = rangeLow — matches ICT's fib tool anchor)
+// =====================================================================================
+f_fibPrice(lvl) =>
+    rangeHigh - lvl * (rangeHigh - rangeLow)
+
+var line[]  fibLines  = array.new_line()
+var label[] fibLabels = array.new_label()
+
+fibLevels = array.from(0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0)
+
+if sessionJustEnded and dateOK and showFib
+    // clear old fib drawings
+    for ln in fibLines
+        line.delete(ln)
+    for lb in fibLabels
+        label.delete(lb)
+    array.clear(fibLines)
+    array.clear(fibLabels)
+
+    for lvl in fibLevels
+        px = f_fibPrice(lvl)
+        col = lvl == 0.5 ? color.red : color.blue
+        ln = line.new(rangeHighBar, px, bar_index, px, color = color.new(col, 40), width = 1, extend = extend.right)
+        lb = label.new(bar_index, px, str.tostring(lvl) + (lvl == 0.5 ? " (C.E.)" : ""),
+             style = label.style_label_left, color = color.new(col, 100), textcolor = col, size = size.tiny)
+        array.push(fibLines, ln)
+        array.push(fibLabels, lb)
+
+    // STDV cap lines (the hard target ceiling/floor)
+    stdvUpper = f_fibPrice(0 - stdvCap)
+    stdvLower = f_fibPrice(1 + stdvCap)
+    lnU = line.new(rangeHighBar, stdvUpper, bar_index, stdvUpper, color = color.new(color.red, 20), width = 1, style = line.style_dashed, extend = extend.right)
+    lnL = line.new(rangeHighBar, stdvLower, bar_index, stdvLower, color = color.new(color.red, 20), width = 1, style = line.style_dashed, extend = extend.right)
+    lbU = label.new(bar_index, stdvUpper, "Final Hour ." + str.tostring(stdvCap * 10 / 10) + " STDV",
+         style = label.style_label_left, color = color.new(color.red, 100), textcolor = color.red, size = size.tiny)
+    lbL = label.new(bar_index, stdvLower, "Final Hour ." + str.tostring(stdvCap * 10 / 10) + " STDV",
+         style = label.style_label_left, color = color.new(color.red, 100), textcolor = color.red, size = size.tiny)
+    array.push(fibLines, lnU)
+    array.push(fibLines, lnL)
+    array.push(fibLabels, lbU)
+    array.push(fibLabels, lbL)
+
+
+// =====================================================================================
+// EQUAL HIGHS / EQUAL LOWS DETECTION (within range + macro window)
+// Uses a 3-candle pivot (candle to the left AND right that's lower/higher) — this is
+// exactly ta.pivothigh(1,1) / ta.pivotlow(1,1).
+// =====================================================================================
+var float[] pivHighPrices = array.new_float()
+var int[]   pivHighBars   = array.new_int()
+var float[] pivLowPrices  = array.new_float()
+var int[]   pivLowBars    = array.new_int()
+
+var float lastEqualHighLevel = na
+var float lastEqualLowLevel  = na
+
+var line[]  liqLines  = array.new_line()
+var label[] liqLabels = array.new_label()
+
+if newSession and dateOK
+    array.clear(pivHighPrices)
+    array.clear(pivHighBars)
+    array.clear(pivLowPrices)
+    array.clear(pivLowBars)
+    lastEqualHighLevel := na
+    lastEqualLowLevel  := na
+    // clear yesterday's equal-highs/lows drawings so they don't accumulate forever
+    for ln in liqLines
+        line.delete(ln)
+    for lb in liqLabels
+        label.delete(lb)
+    array.clear(liqLines)
+    array.clear(liqLabels)
+
+ph = ta.pivothigh(1, 1)
+pl = ta.pivotlow(1, 1)
+
+trackWindow = inRangeSession[1] or inMacroSession[1]
+
+if not na(ph) and trackWindow and dateOK
+    array.push(pivHighPrices, ph)
+    array.push(pivHighBars, bar_index - 1)
+
+    if array.size(pivHighPrices) >= 2
+        priceNew = array.get(pivHighPrices, array.size(pivHighPrices) - 1)
+        priceOld = array.get(pivHighPrices, array.size(pivHighPrices) - 2)
+        barNew   = array.get(pivHighBars, array.size(pivHighBars) - 1)
+        barOld   = array.get(pivHighBars, array.size(pivHighBars) - 2)
+        diffTicks = math.abs(priceNew - priceOld) / mintick
+        // validity rule: the more recent high must be <= the older high (descending),
+        // mirroring the transcript's rule for lows
+        validSeq = priceNew <= priceOld
+        if diffTicks <= relEqualTicks and validSeq
+            qual = diffTicks <= trueEqualTicks ? "True Equal" : diffTicks <= equalTicks ? "Equal" : "Relative Equal"
+            level = math.max(priceNew, priceOld)
+            lastEqualHighLevel := level
+            eqhLine = line.new(barOld, level, bar_index, level, color = color.new(color.orange, 30), width = 1, style = line.style_dashed, extend = extend.right)
+            eqhLabel = label.new(barNew, level, "Equal Highs — Buyside Liquidity (" + qual + ")",
+                 style = label.style_label_down, color = color.new(color.orange, 100), textcolor = color.orange, size = size.tiny)
+            array.push(liqLines, eqhLine)
+            array.push(liqLabels, eqhLabel)
+
+if not na(pl) and trackWindow and dateOK
+    array.push(pivLowPrices, pl)
+    array.push(pivLowBars, bar_index - 1)
+
+    if array.size(pivLowPrices) >= 2
+        priceNew = array.get(pivLowPrices, array.size(pivLowPrices) - 1)
+        priceOld = array.get(pivLowPrices, array.size(pivLowPrices) - 2)
+        barNew   = array.get(pivLowBars, array.size(pivLowBars) - 1)
+        barOld   = array.get(pivLowBars, array.size(pivLowBars) - 2)
+        diffTicks = math.abs(priceNew - priceOld) / mintick
+        // validity rule (from transcript): the more recent low must be >= the older low
+        validSeq = priceNew >= priceOld
+        if diffTicks <= relEqualTicks and validSeq
+            qual = diffTicks <= trueEqualTicks ? "True Equal" : diffTicks <= equalTicks ? "Equal" : "Relative Equal"
+            level = math.min(priceNew, priceOld)
+            lastEqualLowLevel := level
+            eqlLine = line.new(barOld, level, bar_index, level, color = color.new(color.purple, 30), width = 1, style = line.style_dashed, extend = extend.right)
+            eqlLabel = label.new(barNew, level, "Equal Lows — Sellside Liquidity (" + qual + ")",
+                 style = label.style_label_up, color = color.new(color.purple, 100), textcolor = color.purple, size = size.tiny)
+            array.push(liqLines, eqlLine)
+            array.push(liqLabels, eqlLabel)
+
+
+// =====================================================================================
+// STOP EXTENDING LINES AT THE DISPLAY CUTOFF (default 4:25pm NY)
+// All the level lines are drawn with extend.right while forming, then frozen here so
+// they stop exactly at the cutoff instead of running to the edge of the chart forever.
+// =====================================================================================
+if reachedDisplayEnd and dateOK
+    if not na(rangeBox)
+        box.set_right(rangeBox, bar_index)
+    if not na(hiLine)
+        line.set_x2(hiLine, bar_index)
+        line.set_extend(hiLine, extend.none)
+    if not na(loLine)
+        line.set_x2(loLine, bar_index)
+        line.set_extend(loLine, extend.none)
+    for ln in fibLines
+        if not na(ln)
+            line.set_x2(ln, bar_index)
+            line.set_extend(ln, extend.none)
+    for ln in liqLines
+        if not na(ln)
+            line.set_x2(ln, bar_index)
+            line.set_extend(ln, extend.none)
+
+
+// =====================================================================================
+// LIQUIDITY RAID / SWEEP DETECTION (primary symbol)
+// Wick pierces the level, body stays on the safe side (if requireBodyInside is on).
+// Only counts while the range is locked, we're in the macro window, and we haven't
+// already had a real (close) breakout.
+// =====================================================================================
+sweptRangeHigh = rangeLocked and not brokeOut and high > rangeHigh and
+     (requireBodyInside ? math.max(open, close) <= rangeHigh : true)
+sweptRangeLow  = rangeLocked and not brokeOut and low < rangeLow and
+     (requireBodyInside ? math.min(open, close) >= rangeLow : true)
+
+sweptEqualHigh = rangeLocked and not brokeOut and not na(lastEqualHighLevel) and
+     high > lastEqualHighLevel and (requireBodyInside ? math.max(open, close) <= lastEqualHighLevel : true)
+sweptEqualLow  = rangeLocked and not brokeOut and not na(lastEqualLowLevel) and
+     low < lastEqualLowLevel and (requireBodyInside ? math.min(open, close) >= lastEqualLowLevel : true)
+
+plotshape(inMacroSession and sweptEqualHigh, title = "Equal Highs Raid",
+     style = shape.triangledown, location = location.abovebar, color = color.red, size = size.tiny, text = "RAID")
+plotshape(inMacroSession and sweptEqualLow, title = "Equal Lows Raid",
+     style = shape.triangleup, location = location.belowbar, color = color.green, size = size.tiny, text = "RAID")
+
+plotshape(inMacroSession and sweptRangeHigh, title = "Range High Sweep",
+     style = shape.xcross, location = location.abovebar, color = color.orange, size = size.tiny)
+plotshape(inMacroSession and sweptRangeLow, title = "Range Low Sweep",
+     style = shape.xcross, location = location.belowbar, color = color.orange, size = size.tiny)
+
+
+// =====================================================================================
+// SMT DIVERGENCE vs. CORRELATED SYMBOL
+// v1: compares the Final Hour Dealing Range High/Low sweep between the two symbols,
+// matched bar-for-bar (same 1m timestamp, no lead/lag tolerance).
+// =====================================================================================
+f_corrRange(sess) =>
+    var float h = na
+    var float l = na
+    inSess = not na(time(timeframe.period, sess, "America/New_York"))
+    if inSess and not inSess[1]
+        h := high
+        l := low
+    else if inSess
+        h := math.max(h, high)
+        l := math.min(l, low)
+    [h, l]
+
+[cO, cH, cL, cC] = request.security(corrSymbol, timeframe.period, [open, high, low, close], lookahead = barmerge.lookahead_off)
+[cRangeHigh, cRangeLow] = request.security(corrSymbol, timeframe.period, f_corrRange(rangeSessionStr), lookahead = barmerge.lookahead_off)
+
+corrSweptHigh = high > 0 and cH > cRangeHigh and (requireBodyInside ? math.max(cO, cC) <= cRangeHigh : true)
+corrSweptLow  = low > 0 and cL < cRangeLow and (requireBodyInside ? math.min(cO, cC) >= cRangeLow : true)
+
+// Primary swept, correlated did not (or vice versa) — during the macro window only
+smtHigh_primarySweptOnly = showSMT and inMacroSession and sweptRangeHigh and not corrSweptHigh
+smtHigh_corrSweptOnly    = showSMT and inMacroSession and corrSweptHigh and not sweptRangeHigh
+smtLow_primarySweptOnly  = showSMT and inMacroSession and sweptRangeLow and not corrSweptLow
+smtLow_corrSweptOnly     = showSMT and inMacroSession and corrSweptLow and not sweptRangeLow
+
+corrTicker = syminfo.ticker(corrSymbol)
+
+if smtHigh_primarySweptOnly or smtHigh_corrSweptOnly
+    line.new(rangeHighBar, rangeHigh, bar_index, high, color = color.new(color.fuchsia, 10), width = 2)
+    label.new(bar_index, high, "SMT with " + corrTicker, style = label.style_label_up,
+         color = color.new(color.fuchsia, 100), textcolor = color.fuchsia, size = size.small)
+
+if smtLow_primarySweptOnly or smtLow_corrSweptOnly
+    line.new(rangeLowBar, rangeLow, bar_index, low, color = color.new(color.fuchsia, 10), width = 2)
+    label.new(bar_index, low, "SMT with " + corrTicker, style = label.style_label_down,
+         color = color.new(color.fuchsia, 100), textcolor = color.fuchsia, size = size.small)
+
+
+// =====================================================================================
+// TARGET (T1) — opposite range boundary, capped by the STDV extension
+// T2 (next MOC swing liquidity) is intentionally left for a later iteration — flagging
+// here rather than guessing at an unreliable auto-detected level.
+// =====================================================================================
+if inMacroSession and (sweptRangeHigh or sweptEqualHigh)
+    t1 = rangeLow
+    label.new(bar_index, t1, "T1", style = label.style_label_up, color = color.new(color.green, 80), textcolor = color.green, size = size.small)
+
+if inMacroSession and (sweptRangeLow or sweptEqualLow)
+    t1 = rangeHigh
+    label.new(bar_index, t1, "T1", style = label.style_label_down, color = color.new(color.red, 80), textcolor = color.red, size = size.small)
