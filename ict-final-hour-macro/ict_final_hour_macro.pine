@@ -1,16 +1,42 @@
 //@version=6
-indicator("ICT Final Hour — Iter 1: Dealing Range", shorttitle="FH Iter1 Range", overlay=true, max_lines_count=100, max_boxes_count=100, max_labels_count=100)
+indicator("ICT Final Hour — Iter 2: Dealing Range + Fib/STDV", shorttitle="FH It2 Fib", overlay=true, max_lines_count=500, max_boxes_count=100, max_labels_count=350)
+
+// NOTE: with the dynamic eighth/sixteenth-step levels (up to 26 possible per day, after
+// excluding the 3 permanent quarter positions per side) added to the fixed 15/day from
+// the range+fib+quarter-STDV lines, keeping the full historyDays worth of dynamic lines
+// around simultaneously can exceed Pine's 500-line hard cap if most days trigger many
+// levels. The dynamic history array prunes on a day-count basis (same as everything else)
+// but does NOT independently cap total line count — if you see lines silently disappearing
+// beyond what historyDays should show, lower historyDays or the tolerance so fewer levels
+// trigger per day.
 
 // =====================================================================================
-// ITERATION 1 — FINAL HOUR DEALING RANGE ONLY
+// ITERATION 2 — DEALING RANGE + FIB / STDV LEVELS
 // -------------------------------------------------------------------------------------
-// Scope for this iteration:
-//   - Track the 3:00-3:50pm NY session high/low
-//   - Draw it as a box + high/low lines directly on the candlestick pane (overlay=true)
-//   - Lines stop extending at a configurable cutoff (default 4:25pm) instead of running
-//     to the edge of the chart forever
-// Explicitly NOT in this iteration: fib/STDV levels, equal highs/lows, SMT, raids,
-// targets, signals. Those are later iterations per the project charter.
+// Builds on Iteration 1 (unchanged: range box, high/low lines, label styling/behavior).
+// Adds for this iteration:
+//   - Fib levels on the range (.125, .25, .375, .5 = C.E., .625, .75, .875) — colored the
+//     same blue as the High/Low lines, except C.E. which is #B22833
+//   - Permanent quarter-step STDV lines beyond the range (.25/.5/.75 both sides) in
+//     #F23645 — these never hide or recolor, they're fixed reference points
+//   - Dynamic eighth-step levels beyond the range (excluding the quarters above), hidden
+//     until a 1m candle wick or body touches that exact price within the trigger window
+//     — draw dotted #F23645 (same red as the quarters) when triggered
+//   - Dynamic sixteenth-step levels beyond the range (excluding eighths/quarters), same
+//     hidden-until-touched behavior — draw in #AA740F when triggered
+//   - Range-formation window now starts a few minutes before the official session (default
+//     1455 instead of 1500) so a swing extreme that forms just before the session open
+//     (e.g. a low at 2:58pm) still gets captured — the hard stop at 1530 is unchanged
+//   - Fixed a gap between the box/lines when the high and low formed at different times —
+//     everything now starts from whichever extreme formed first
+//   - Keeps the last N trading days (default 29) of ranges on the chart simultaneously
+//     for backtesting, instead of erasing yesterday's range when today's forms. Each
+//     day's drawings still freeze at their own display cutoff — only the most recent,
+//     still-forming day is ever actively tracking/extending. Oldest day is dropped once
+//     the count exceeds the input. (Pine's hard cap is 500 lines / 500 labels total, so
+//     the day count is capped at 29 to stay safely under that with this many lines/day.)
+// Explicitly NOT in this iteration: equal highs/lows, SMT, raids, targets, signals.
+// Those are later iterations per the project charter.
 // =====================================================================================
 
 
@@ -18,10 +44,28 @@ indicator("ICT Final Hour — Iter 1: Dealing Range", shorttitle="FH Iter1 Range
 // INPUTS
 // =====================================================================================
 grpSession = "Session"
-rangeSessionStr = input.session("1500-1530", "Final Hour Dealing Range (NY time)", group = grpSession)
+rangeSessionStr = input.session("1455-1530", "Final Hour Dealing Range (NY time)", group = grpSession)
 
 grpDisplay = "Line Display"
 displayEndStr = input.session("1625-1630", "Stop extending lines at (NY time)", group = grpDisplay)
+
+grpFib = "Fib / STDV Levels"
+showFib = input.bool(true, "Show Fib / STDV Levels", group = grpFib)
+stdvCap = input.float(0.5, "STDV Target Cap (fib extension beyond range)", group = grpFib, minval = 0)
+
+grpHistory = "History"
+historyDays = input.int(20, "Number of trading days to keep on chart", group = grpHistory, minval = 1, maxval = 29)
+
+grpDynamic = "Dynamic Extended Levels (eighths + sixteenths)"
+showDynamic     = input.bool(true, "Show dynamic eighth/sixteenth levels beyond .75 STDV", group = grpDynamic)
+dynTriggerStr   = input.session("1530-1600", "Trigger window (NY time)", group = grpDynamic)
+dynToleranceTk  = input.int(1, "Exact-touch tolerance (ticks)", group = grpDynamic, minval = 0)
+
+// colors per the reference screenshot
+colRange    = color.blue                    // same as the High/Low lines
+colCE       = color.rgb(178, 40, 51)         // #B22833 — the 0.5 / C.E. line
+colSTDV     = color.rgb(242, 54, 69)         // #F23645 — quarter-step STDV lines (solid, permanent, never recolor) AND eighth-step lines (dotted, dynamic)
+colSixteenth = color.rgb(170, 116, 15)       // #AA740F — sixteenth-step levels (odd 1/16 positions), hidden until touched
 
 grpTest = "Testing / Replay"
 restrictDate = input.bool(false, "Restrict indicator to a single test date", group = grpTest)
@@ -34,6 +78,7 @@ testDate     = input.time(timestamp("2026-08-03 00:00 -0400"), "Test Date", grou
 inRangeSession = not na(time(timeframe.period, rangeSessionStr, "America/New_York"))
 inDisplayEnd   = not na(time(timeframe.period, displayEndStr, "America/New_York"))
 reachedDisplayEnd = inDisplayEnd and not inDisplayEnd[1]
+inDynTrigger   = not na(time(timeframe.period, dynTriggerStr, "America/New_York"))
 
 dateOK = not restrictDate or
      (year(time, "America/New_York")       == year(testDate, "America/New_York") and
@@ -48,6 +93,7 @@ var float rangeHigh    = na
 var float rangeLow     = na
 var int   rangeHighBar = na
 var int   rangeLowBar  = na
+var int   leftBar      = na
 
 newSession = inRangeSession and not inRangeSession[1]
 
@@ -82,20 +128,57 @@ var label hiLabel    = na
 var label loLabel    = na
 var bool  rangeActive = false
 
-if sessionJustEnded and dateOK
-    box.delete(rangeBox)
-    line.delete(hiLine)
-    line.delete(loLine)
-    label.delete(hiLabel)
-    label.delete(loLabel)
+// fib/STDV drawing refs for the CURRENT (still-forming or just-frozen) day only — declared
+// here since the history archiving step below needs to read them before the fib section
+// (further down) rebuilds them for the new day
+var line[]  fibLines  = array.new_line()
+var label[] fibLabels = array.new_label()
 
-    rangeBox := box.new(rangeHighBar, rangeHigh, bar_index, rangeLow,
+// history retention: keep the last N days' drawings instead of deleting them each day
+var box[]   histBoxes  = array.new_box()
+var line[]  histLines  = array.new_line()
+var label[] histLabels = array.new_label()
+var int     dayCount   = 0
+
+LINES_PER_DAY  = 15   // hi/lo (2) + quadrants (6) + C.E. (1) + STDV quarters .25/.5/.75 both sides (6)
+LABELS_PER_DAY = 7    // hi/lo (2) + C.E. (1) + STDV .5/.25 both sides (4)
+
+if sessionJustEnded and dateOK
+    if not na(rangeBox)
+        // archive yesterday's drawings instead of deleting them, so they stay on chart
+        array.push(histBoxes, rangeBox)
+        array.push(histLines, hiLine)
+        array.push(histLines, loLine)
+        for ln in fibLines
+            array.push(histLines, ln)
+        array.push(histLabels, hiLabel)
+        array.push(histLabels, loLabel)
+        for lb in fibLabels
+            array.push(histLabels, lb)
+        dayCount += 1
+
+        if dayCount > historyDays
+            oldestBox = array.shift(histBoxes)
+            box.delete(oldestBox)
+            for i = 1 to LINES_PER_DAY
+                oldestLine = array.shift(histLines)
+                line.delete(oldestLine)
+            for i = 1 to LABELS_PER_DAY
+                oldestLabel = array.shift(histLabels)
+                label.delete(oldestLabel)
+            dayCount -= 1
+
+    // both box and lines start at the earlier of the two extreme bars, so there's no gap
+    // in shading/lines before whichever of the high/low formed second
+    leftBar := math.min(rangeHighBar, rangeLowBar)
+
+    rangeBox := box.new(leftBar, rangeHigh, bar_index, rangeLow,
          border_color = color.new(color.blue, 60), bgcolor = color.new(color.blue, 92),
          extend = extend.right)
 
-    hiLine := line.new(rangeHighBar, rangeHigh, bar_index, rangeHigh,
+    hiLine := line.new(leftBar, rangeHigh, bar_index, rangeHigh,
          color = color.blue, width = 1, extend = extend.right)
-    loLine := line.new(rangeLowBar, rangeLow, bar_index, rangeLow,
+    loLine := line.new(leftBar, rangeLow, bar_index, rangeLow,
          color = color.blue, width = 1, extend = extend.right)
 
     // labels sit vertically centered right on the line (transparent background, just the
@@ -120,6 +203,136 @@ if rangeActive and dateOK and not reachedDisplayEnd
 
 
 // =====================================================================================
+// FIB / STDV LEVELS ON THE RANGE
+// (convention: level 0 = rangeHigh, level 1 = rangeLow — matches ICT's fib tool anchor)
+// 0 and 1 themselves are skipped here since Iteration 1's hiLine/loLine already cover them.
+// =====================================================================================
+f_fibPrice(lvl) =>
+    rangeHigh - lvl * (rangeHigh - rangeLow)
+
+quadrantLevels = array.from(0.125, 0.25, 0.375, 0.625, 0.75, 0.875)
+
+if sessionJustEnded and dateOK and showFib
+    array.clear(fibLines)
+    array.clear(fibLabels)
+
+    for lvl in quadrantLevels
+        px = f_fibPrice(lvl)
+        ln = line.new(leftBar, px, bar_index, px, color = colRange, width = 1, extend = extend.right)
+        array.push(fibLines, ln)
+
+    ceP = f_fibPrice(0.5)
+    ceLine = line.new(leftBar, ceP, bar_index, ceP, color = colCE, width = 1, extend = extend.right)
+    ceLabel = label.new(bar_index + labelGap, ceP, "Final Hour Dealing Range C.E.",
+         style = label.style_label_left, color = color.new(colCE, 100), textcolor = colCE, size = size.small)
+    array.push(fibLines, ceLine)
+    array.push(fibLabels, ceLabel)
+
+    stdvUpperP = f_fibPrice(0 - stdvCap)
+    stdvLowerP = f_fibPrice(1 + stdvCap)
+    stdvULine = line.new(leftBar, stdvUpperP, bar_index, stdvUpperP, color = colSTDV, width = 1, extend = extend.right)
+    stdvLLine = line.new(leftBar, stdvLowerP, bar_index, stdvLowerP, color = colSTDV, width = 1, extend = extend.right)
+    stdvULabel = label.new(bar_index + labelGap, stdvUpperP, "Final Hour ." + str.tostring(stdvCap) + " STDV",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    stdvLLabel = label.new(bar_index + labelGap, stdvLowerP, "Final Hour ." + str.tostring(stdvCap) + " STDV",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    array.push(fibLines, stdvULine)
+    array.push(fibLines, stdvLLine)
+    array.push(fibLabels, stdvULabel)
+    array.push(fibLabels, stdvLLabel)
+
+    stdvUpperP2 = f_fibPrice(0 - 0.25)
+    stdvLowerP2 = f_fibPrice(1 + 0.25)
+    stdvULine2 = line.new(leftBar, stdvUpperP2, bar_index, stdvUpperP2, color = colSTDV, width = 1, extend = extend.right)
+    stdvLLine2 = line.new(leftBar, stdvLowerP2, bar_index, stdvLowerP2, color = colSTDV, width = 1, extend = extend.right)
+    stdvULabel2 = label.new(bar_index + labelGap, stdvUpperP2, "Final Hour .25 STDV",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    stdvLLabel2 = label.new(bar_index + labelGap, stdvLowerP2, "Final Hour .25 STDV",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    array.push(fibLines, stdvULine2)
+    array.push(fibLines, stdvLLine2)
+    array.push(fibLabels, stdvULabel2)
+    array.push(fibLabels, stdvLLabel2)
+
+    // level 1.75 / -0.75 — a permanent quarter-step line like .25/.5 above, no label
+    stdvUpperMid2 = f_fibPrice(0 - 0.75)
+    stdvLowerMid2 = f_fibPrice(1 + 0.75)
+    stdvUMidLine2 = line.new(leftBar, stdvUpperMid2, bar_index, stdvUpperMid2, color = colSTDV, width = 1, extend = extend.right)
+    stdvLMidLine2 = line.new(leftBar, stdvLowerMid2, bar_index, stdvLowerMid2, color = colSTDV, width = 1, extend = extend.right)
+    array.push(fibLines, stdvUMidLine2)
+    array.push(fibLines, stdvLMidLine2)
+
+// keep fib/STDV labels tracking a few bars ahead of the current bar, same as the range
+// labels, until the display cutoff freezes everything in place
+if rangeActive and dateOK and not reachedDisplayEnd and showFib
+    for lb in fibLabels
+        if not na(lb)
+            label.set_x(lb, bar_index + labelGap)
+
+
+// =====================================================================================
+// DYNAMIC EXTENDED LEVELS — eighths (excl. quarters) + sixteenths (excl. eighths/quarters)
+// The permanent quarter lines above (.25/.5/.75 both sides) are fixed reference points and
+// NEVER recolor or hide — they stay #F23645 always.
+// Everything else on the 1/16 ladder beyond the range (steps of 0.0625, from level 1.0625
+// up to 2.0, and mirrored -0.0625 to -1.0) is hidden by default. A level only draws once a
+// 1-minute candle's wick OR body touches that exact price (within a small tick tolerance),
+// and only if that touch happens inside the trigger window (default 1530-1600 NY).
+//   - Eighth-step levels (1.125, 1.375, 1.625, 1.875 and mirrored) draw dotted, same
+//     #F23645 red as the permanent quarters
+//   - Sixteenth-step levels (the remaining odd 1/16 positions) draw solid #AA740F
+// Neither tier changes the other's color, and neither ever touches the permanent quarters.
+// Triggers independently per side. Since the number of levels that trigger varies day to
+// day, these need their own variable-count history tracking rather than the fixed
+// LINES_PER_DAY scheme used above.
+// =====================================================================================
+var line[] dynLinesToday = array.new_line()   // lines triggered so far on the current day
+var bool[] dynHit        = array.new_bool(32, false)   // index 0-15 = lower side i=1..16, 16-31 = upper side i=1..16
+
+var line[] dynHistLines     = array.new_line()
+var int[]  dynHistDayCounts = array.new_int()
+
+if newSession and dateOK
+    // archive yesterday's dynamic lines (variable count) before resetting for today
+    if array.size(dynLinesToday) > 0 or array.size(dynHistDayCounts) > 0
+        array.push(dynHistDayCounts, array.size(dynLinesToday))
+        for ln in dynLinesToday
+            array.push(dynHistLines, ln)
+        if array.size(dynHistDayCounts) > historyDays
+            n = array.shift(dynHistDayCounts)
+            for i = 1 to n
+                oldestDynLine = array.shift(dynHistLines)
+                line.delete(oldestDynLine)
+    array.clear(dynLinesToday)
+    array.fill(dynHit, false)
+
+if showDynamic and dateOK and inDynTrigger and not na(rangeHigh)
+    tol = dynToleranceTk * syminfo.mintick
+    for i = 1 to 16
+        // i = 4, 8, 12 land exactly on the permanent quarter lines (.25/.5/.75) — skip
+        if i != 4 and i != 8 and i != 12
+            isEighth  = i % 2 == 0
+            tierColor = isEighth ? colSTDV : colSixteenth
+            tierStyle = isEighth ? line.style_dotted : line.style_solid
+
+            lowerIdx = i - 1
+            if not array.get(dynHit, lowerIdx)
+                px = f_fibPrice(1 + i * 0.0625)
+                if math.abs(high - px) <= tol or math.abs(low - px) <= tol or math.abs(open - px) <= tol or math.abs(close - px) <= tol
+                    ln = line.new(leftBar, px, bar_index, px, color = tierColor, width = 1, style = tierStyle, extend = extend.right)
+                    array.push(dynLinesToday, ln)
+                    array.set(dynHit, lowerIdx, true)
+
+            upperIdx = 16 + i - 1
+            if not array.get(dynHit, upperIdx)
+                pxU = f_fibPrice(0 - i * 0.0625)
+                if math.abs(high - pxU) <= tol or math.abs(low - pxU) <= tol or math.abs(open - pxU) <= tol or math.abs(close - pxU) <= tol
+                    lnU = line.new(leftBar, pxU, bar_index, pxU, color = tierColor, width = 1, style = tierStyle, extend = extend.right)
+                    array.push(dynLinesToday, lnU)
+                    array.set(dynHit, upperIdx, true)
+
+
+// =====================================================================================
 // STOP EXTENDING LINES AT THE DISPLAY CUTOFF (default 4:25pm NY)
 // =====================================================================================
 if reachedDisplayEnd and dateOK
@@ -136,4 +349,15 @@ if reachedDisplayEnd and dateOK
         label.set_x(hiLabel, bar_index + labelGap)
     if not na(loLabel)
         label.set_x(loLabel, bar_index + labelGap)
+    for ln in fibLines
+        if not na(ln)
+            line.set_x2(ln, bar_index)
+            line.set_extend(ln, extend.none)
+    for lb in fibLabels
+        if not na(lb)
+            label.set_x(lb, bar_index + labelGap)
+    for ln in dynLinesToday
+        if not na(ln)
+            line.set_x2(ln, bar_index)
+            line.set_extend(ln, extend.none)
     rangeActive := false
