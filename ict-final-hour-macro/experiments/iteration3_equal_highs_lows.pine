@@ -1,0 +1,567 @@
+//@version=6
+indicator("ICT Final Hour — Iter 3: + Liquidity (Eq H/L)", shorttitle="FH It3 Liq", overlay=true, max_lines_count=500, max_boxes_count=100, max_labels_count=500)
+
+// NOTE: with the dynamic eighth/sixteenth-step levels (up to 26 possible per day, after
+// excluding the 3 permanent quarter positions per side) added to the fixed 15/day from
+// the range+fib+quarter-STDV lines, keeping the full historyDays worth of dynamic lines
+// around simultaneously can exceed Pine's 500-line hard cap if most days trigger many
+// levels. The dynamic history array prunes on a day-count basis (same as everything else)
+// but does NOT independently cap total line count — if you see lines silently disappearing
+// beyond what historyDays should show, lower historyDays or the tolerance so fewer levels
+// trigger per day.
+
+// =====================================================================================
+// ITERATION 3 — + BUYSIDE / SELLSIDE LIQUIDITY (EQUAL HIGHS / LOWS)
+// -------------------------------------------------------------------------------------
+// Builds on Iterations 1-2 (unchanged: dealing range, fib/STDV/quarter/eighth/sixteenth
+// levels, history retention). Adds for this iteration:
+//   - Equal-highs / equal-lows detection using the 3-candle swing pivot rule (higher low
+//     on both sides = valid swing low, lower high on both sides = valid swing high) —
+//     ta.pivothigh(1,1) / ta.pivotlow(1,1)
+//   - Lookback window starts at 12:55pm NY (separate from the 1455-1530 range window) and
+//     runs through the display cutoff
+//   - Tick tolerance tiers: True Equal (1 tick), Equal (10 ticks), Relative Equal (up to
+//     15 ticks) — matches against the CLOSEST prior pivot within tolerance, not just the
+//     immediately-preceding one
+//   - Sequencing validity rule: for highs, the more recent pivot must be <= the older one
+//     (descending); for lows, the more recent pivot must be >= the older one (ascending)
+//   - Label text follows the reference screenshots: tight matches (True Equal/Equal) label
+//     as plain "Equal High"/"Equal Low"; Relative Equal matches label as "Engineered
+//     Relative Equal Highs Buyside Liquidity" / "...Lows Sellside Liquidity"
+//   - Same blue color as the range/quadrant lines, no special buy/sell color split
+//   - Lines/labels extend to the display cutoff (4:25pm) like everything else, UNLESS the
+//     level hasn't been touched yet — untouched levels keep extending past the cutoff
+//     until price actually reaches that price again, or until the historyDays window
+//     prunes that day away (whichever comes first — see note below)
+//   - Levels are never deleted mid-day once drawn, even after being touched/raided — kept
+//     for backtesting within the current historyDays rolling window (same pruning as the
+//     dealing range / fib / STDV lines above), NOT kept forever unbounded (this iteration
+//     does not yet detect/flag raids or "turtle soups" — that's Iteration 5's job; this
+//     iteration only detects and plots the levels themselves)
+// NOTE: touch-checking (to freeze an untouched line the moment price reaches it) only
+// actively runs for the CURRENT day's levels. Once a new day starts, that day's levels
+// move into the pruned history — they keep visually extending (Pine's own extend.right
+// keeps rendering them to the current bar with no further script involvement needed) but
+// the script stops checking whether they ever get touched after that point; they'll
+// simply get deleted outright once historyDays rolls past that day, touched or not. If
+// you want touch-tracking to keep working on older, carried-over days too, that's a
+// bigger change — flag it and we can revisit.
+// Explicitly NOT in this iteration: SMT, raid/sweep detection, targets, signals.
+// Those are later iterations per the project charter.
+// =====================================================================================
+
+
+// =====================================================================================
+// INPUTS
+// =====================================================================================
+grpSession = "Session"
+rangeSessionStr = input.session("1455-1530", "Final Hour Dealing Range (NY time)", group = grpSession)
+
+grpDisplay = "Line Display"
+displayEndStr = input.session("1625-1630", "Stop extending lines at (NY time)", group = grpDisplay)
+
+grpFib = "Fib / STDV Levels"
+showFib = input.bool(true, "Show Fib / STDV Levels", group = grpFib)
+stdvCap = input.float(0.5, "STDV Target Cap (fib extension beyond range)", group = grpFib, minval = 0)
+
+grpHistory = "History"
+historyDays = input.int(20, "Number of trading days to keep on chart", group = grpHistory, minval = 1, maxval = 29)
+
+grpDynamic = "Dynamic Extended Levels (eighths + sixteenths)"
+showDynamic     = input.bool(true, "Show dynamic eighth/sixteenth levels beyond .75 STDV", group = grpDynamic)
+dynTriggerStr   = input.session("1530-1600", "Trigger window (NY time)", group = grpDynamic)
+dynToleranceTk  = input.int(1, "Exact-touch tolerance (ticks)", group = grpDynamic, minval = 0)
+
+grpLiquidity = "Buyside / Sellside Liquidity (Equal Highs/Lows)"
+showLiquidity      = input.bool(true, "Show Equal Highs/Lows", group = grpLiquidity)
+liqLookbackStr     = input.session("1255-1630", "Lookback Window (NY time)", group = grpLiquidity)
+liqTrueEqualTicks  = input.int(1, "True Equal (ticks)", group = grpLiquidity, minval = 0)
+liqEqualTicks      = input.int(10, "Equal (ticks)", group = grpLiquidity, minval = 0)
+liqRelEqualTicks   = input.int(15, "Relative Equal - max (ticks)", group = grpLiquidity, minval = 0)
+
+// colors per the reference screenshot
+colRange    = color.blue                    // same as the High/Low lines
+colCE       = color.rgb(178, 40, 51)         // #B22833 — the 0.5 / C.E. line
+colSTDV     = color.rgb(242, 54, 69)         // #F23645 — quarter-step STDV lines (solid, permanent, never recolor) AND eighth-step lines (dotted, dynamic)
+colSixteenth = color.rgb(170, 116, 15)       // #AA740F — sixteenth-step levels (odd 1/16 positions), hidden until touched
+
+grpTest = "Testing / Replay"
+restrictDate = input.bool(false, "Restrict indicator to a single test date", group = grpTest)
+testDate     = input.time(timestamp("2026-08-03 00:00 -0400"), "Test Date", group = grpTest)
+
+
+// =====================================================================================
+// TIME / SESSION HELPERS
+// =====================================================================================
+inRangeSession = not na(time(timeframe.period, rangeSessionStr, "America/New_York"))
+inDisplayEnd   = not na(time(timeframe.period, displayEndStr, "America/New_York"))
+reachedDisplayEnd = inDisplayEnd and not inDisplayEnd[1]
+inDynTrigger   = not na(time(timeframe.period, dynTriggerStr, "America/New_York"))
+inLiqLookback  = not na(time(timeframe.period, liqLookbackStr, "America/New_York"))
+newLiqSession  = inLiqLookback and not inLiqLookback[1]
+
+dateOK = not restrictDate or
+     (year(time, "America/New_York")       == year(testDate, "America/New_York") and
+      month(time, "America/New_York")      == month(testDate, "America/New_York") and
+      dayofmonth(time, "America/New_York") == dayofmonth(testDate, "America/New_York"))
+
+
+// =====================================================================================
+// FINAL HOUR DEALING RANGE TRACKING
+// =====================================================================================
+var float rangeHigh    = na
+var float rangeLow     = na
+var int   rangeHighBar = na
+var int   rangeLowBar  = na
+var int   leftBar      = na
+
+newSession = inRangeSession and not inRangeSession[1]
+
+if newSession and dateOK
+    rangeHigh    := high
+    rangeLow     := low
+    rangeHighBar := bar_index
+    rangeLowBar  := bar_index
+
+if inRangeSession and not newSession and dateOK
+    if high > rangeHigh
+        rangeHigh    := high
+        rangeHighBar := bar_index
+    if low < rangeLow
+        rangeLow    := low
+        rangeLowBar := bar_index
+
+sessionJustEnded = inRangeSession[1] and not inRangeSession
+
+// small horizontal gap between where the lines end and where the label text starts,
+// so the text never visually touches/overlaps the line regardless of chart zoom
+labelGap = 3
+
+
+// =====================================================================================
+// DRAW DEALING RANGE BOX + LEVEL LINES (on the main candlestick pane — overlay=true above)
+// =====================================================================================
+var box   rangeBox   = na
+var line  hiLine     = na
+var line  loLine     = na
+var label hiLabel    = na
+var label loLabel    = na
+var bool  rangeActive = false
+
+// fib/STDV drawing refs for the CURRENT (still-forming or just-frozen) day only — declared
+// here since the history archiving step below needs to read them before the fib section
+// (further down) rebuilds them for the new day
+var line[]  fibLines  = array.new_line()
+var label[] fibLabels = array.new_label()
+
+// history retention: keep the last N days' drawings instead of deleting them each day
+var box[]   histBoxes  = array.new_box()
+var line[]  histLines  = array.new_line()
+var label[] histLabels = array.new_label()
+var int     dayCount   = 0
+
+LINES_PER_DAY  = 15   // hi/lo (2) + quadrants (6) + C.E. (1) + STDV quarters .25/.5/.75 both sides (6)
+LABELS_PER_DAY = 7    // hi/lo (2) + C.E. (1) + STDV .5/.25 both sides (4)
+
+if sessionJustEnded and dateOK
+    if not na(rangeBox)
+        // archive yesterday's drawings instead of deleting them, so they stay on chart
+        array.push(histBoxes, rangeBox)
+        array.push(histLines, hiLine)
+        array.push(histLines, loLine)
+        for ln in fibLines
+            array.push(histLines, ln)
+        array.push(histLabels, hiLabel)
+        array.push(histLabels, loLabel)
+        for lb in fibLabels
+            array.push(histLabels, lb)
+        dayCount += 1
+
+        if dayCount > historyDays
+            oldestBox = array.shift(histBoxes)
+            box.delete(oldestBox)
+            for i = 1 to LINES_PER_DAY
+                oldestLine = array.shift(histLines)
+                line.delete(oldestLine)
+            for i = 1 to LABELS_PER_DAY
+                oldestLabel = array.shift(histLabels)
+                label.delete(oldestLabel)
+            dayCount -= 1
+
+    // both box and lines start at the earlier of the two extreme bars, so there's no gap
+    // in shading/lines before whichever of the high/low formed second
+    leftBar := math.min(rangeHighBar, rangeLowBar)
+
+    rangeBox := box.new(leftBar, rangeHigh, bar_index, rangeLow,
+         border_color = color.new(color.blue, 60), bgcolor = color.new(color.blue, 92),
+         extend = extend.right)
+
+    hiLine := line.new(leftBar, rangeHigh, bar_index, rangeHigh,
+         color = color.blue, width = 1, extend = extend.right)
+    loLine := line.new(leftBar, rangeLow, bar_index, rangeLow,
+         color = color.blue, width = 1, extend = extend.right)
+
+    // labels sit vertically centered right on the line (transparent background, just the
+    // colored text with a small connector dash) — matches the reference style; they'll
+    // track to the right edge below and freeze at the display cutoff
+    hiLabel := label.new(bar_index + labelGap, rangeHigh, "Final Hour Dealing Range High",
+         style = label.style_label_left, color = color.new(color.blue, 100),
+         textcolor = color.blue, size = size.small)
+    loLabel := label.new(bar_index + labelGap, rangeLow, "Final Hour Dealing Range Low",
+         style = label.style_label_left, color = color.new(color.blue, 100),
+         textcolor = color.blue, size = size.small)
+
+    rangeActive := true
+
+// keep the labels tracking a few bars ahead of the current (rightmost) bar, same as the
+// extend.right lines, until the display cutoff freezes everything in place
+if rangeActive and dateOK and not reachedDisplayEnd
+    if not na(hiLabel)
+        label.set_x(hiLabel, bar_index + labelGap)
+    if not na(loLabel)
+        label.set_x(loLabel, bar_index + labelGap)
+
+
+// =====================================================================================
+// FIB / STDV LEVELS ON THE RANGE
+// (convention: level 0 = rangeHigh, level 1 = rangeLow — matches ICT's fib tool anchor)
+// 0 and 1 themselves are skipped here since Iteration 1's hiLine/loLine already cover them.
+// =====================================================================================
+f_fibPrice(lvl) =>
+    rangeHigh - lvl * (rangeHigh - rangeLow)
+
+quadrantLevels = array.from(0.125, 0.25, 0.375, 0.625, 0.75, 0.875)
+
+if sessionJustEnded and dateOK and showFib
+    array.clear(fibLines)
+    array.clear(fibLabels)
+
+    for lvl in quadrantLevels
+        px = f_fibPrice(lvl)
+        ln = line.new(leftBar, px, bar_index, px, color = colRange, width = 1, extend = extend.right)
+        array.push(fibLines, ln)
+
+    ceP = f_fibPrice(0.5)
+    ceLine = line.new(leftBar, ceP, bar_index, ceP, color = colCE, width = 1, extend = extend.right)
+    ceLabel = label.new(bar_index + labelGap, ceP, "Final Hour Dealing Range C.E.",
+         style = label.style_label_left, color = color.new(colCE, 100), textcolor = colCE, size = size.small)
+    array.push(fibLines, ceLine)
+    array.push(fibLabels, ceLabel)
+
+    stdvUpperP = f_fibPrice(0 - stdvCap)
+    stdvLowerP = f_fibPrice(1 + stdvCap)
+    stdvULine = line.new(leftBar, stdvUpperP, bar_index, stdvUpperP, color = colSTDV, width = 1, extend = extend.right)
+    stdvLLine = line.new(leftBar, stdvLowerP, bar_index, stdvLowerP, color = colSTDV, width = 1, extend = extend.right)
+    stdvULabel = label.new(bar_index + labelGap, stdvUpperP, "Final Hour ." + str.tostring(stdvCap) + " STDV",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    stdvLLabel = label.new(bar_index + labelGap, stdvLowerP, "Final Hour ." + str.tostring(stdvCap) + " STDV",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    array.push(fibLines, stdvULine)
+    array.push(fibLines, stdvLLine)
+    array.push(fibLabels, stdvULabel)
+    array.push(fibLabels, stdvLLabel)
+
+    stdvUpperP2 = f_fibPrice(0 - 0.25)
+    stdvLowerP2 = f_fibPrice(1 + 0.25)
+    stdvULine2 = line.new(leftBar, stdvUpperP2, bar_index, stdvUpperP2, color = colSTDV, width = 1, extend = extend.right)
+    stdvLLine2 = line.new(leftBar, stdvLowerP2, bar_index, stdvLowerP2, color = colSTDV, width = 1, extend = extend.right)
+    stdvULabel2 = label.new(bar_index + labelGap, stdvUpperP2, "Final Hour .25 STDV",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    stdvLLabel2 = label.new(bar_index + labelGap, stdvLowerP2, "Final Hour .25 STDV",
+         style = label.style_label_left, color = color.new(colSTDV, 100), textcolor = colSTDV, size = size.small)
+    array.push(fibLines, stdvULine2)
+    array.push(fibLines, stdvLLine2)
+    array.push(fibLabels, stdvULabel2)
+    array.push(fibLabels, stdvLLabel2)
+
+    // level 1.75 / -0.75 — a permanent quarter-step line like .25/.5 above, no label
+    stdvUpperMid2 = f_fibPrice(0 - 0.75)
+    stdvLowerMid2 = f_fibPrice(1 + 0.75)
+    stdvUMidLine2 = line.new(leftBar, stdvUpperMid2, bar_index, stdvUpperMid2, color = colSTDV, width = 1, extend = extend.right)
+    stdvLMidLine2 = line.new(leftBar, stdvLowerMid2, bar_index, stdvLowerMid2, color = colSTDV, width = 1, extend = extend.right)
+    array.push(fibLines, stdvUMidLine2)
+    array.push(fibLines, stdvLMidLine2)
+
+// keep fib/STDV labels tracking a few bars ahead of the current bar, same as the range
+// labels, until the display cutoff freezes everything in place
+if rangeActive and dateOK and not reachedDisplayEnd and showFib
+    for lb in fibLabels
+        if not na(lb)
+            label.set_x(lb, bar_index + labelGap)
+
+
+// =====================================================================================
+// DYNAMIC EXTENDED LEVELS — eighths (excl. quarters) + sixteenths (excl. eighths/quarters)
+// The permanent quarter lines above (.25/.5/.75 both sides) are fixed reference points and
+// NEVER recolor or hide — they stay #F23645 always.
+// Everything else on the 1/16 ladder beyond the range (steps of 0.0625, from level 1.0625
+// up to 2.0, and mirrored -0.0625 to -1.0) is hidden by default. A level only draws once a
+// 1-minute candle's wick OR body touches that exact price (within a small tick tolerance),
+// and only if that touch happens inside the trigger window (default 1530-1600 NY).
+//   - Eighth-step levels (1.125, 1.375, 1.625, 1.875 and mirrored) draw dotted, same
+//     #F23645 red as the permanent quarters
+//   - Sixteenth-step levels (the remaining odd 1/16 positions) draw solid #AA740F
+// Neither tier changes the other's color, and neither ever touches the permanent quarters.
+// Triggers independently per side. Since the number of levels that trigger varies day to
+// day, these need their own variable-count history tracking rather than the fixed
+// LINES_PER_DAY scheme used above.
+// =====================================================================================
+var line[] dynLinesToday = array.new_line()   // lines triggered so far on the current day
+var bool[] dynHit        = array.new_bool(32, false)   // index 0-15 = lower side i=1..16, 16-31 = upper side i=1..16
+
+var line[] dynHistLines     = array.new_line()
+var int[]  dynHistDayCounts = array.new_int()
+
+if newSession and dateOK
+    // archive yesterday's dynamic lines (variable count) before resetting for today
+    if array.size(dynLinesToday) > 0 or array.size(dynHistDayCounts) > 0
+        array.push(dynHistDayCounts, array.size(dynLinesToday))
+        for ln in dynLinesToday
+            array.push(dynHistLines, ln)
+        if array.size(dynHistDayCounts) > historyDays
+            n = array.shift(dynHistDayCounts)
+            if n > 0
+                for i = 1 to n
+                    oldestDynLine = array.shift(dynHistLines)
+                    line.delete(oldestDynLine)
+    array.clear(dynLinesToday)
+    array.fill(dynHit, false)
+
+if showDynamic and dateOK and inDynTrigger and not na(rangeHigh)
+    tol = dynToleranceTk * syminfo.mintick
+    for i = 1 to 16
+        // i = 4, 8, 12 land exactly on the permanent quarter lines (.25/.5/.75) — skip
+        if i != 4 and i != 8 and i != 12
+            isEighth  = i % 2 == 0
+            tierColor = isEighth ? colSTDV : colSixteenth
+            tierStyle = isEighth ? line.style_dotted : line.style_solid
+
+            lowerIdx = i - 1
+            if not array.get(dynHit, lowerIdx)
+                px = f_fibPrice(1 + i * 0.0625)
+                if math.abs(high - px) <= tol or math.abs(low - px) <= tol or math.abs(open - px) <= tol or math.abs(close - px) <= tol
+                    ln = line.new(leftBar, px, bar_index, px, color = tierColor, width = 1, style = tierStyle, extend = extend.right)
+                    array.push(dynLinesToday, ln)
+                    array.set(dynHit, lowerIdx, true)
+
+            upperIdx = 16 + i - 1
+            if not array.get(dynHit, upperIdx)
+                pxU = f_fibPrice(0 - i * 0.0625)
+                if math.abs(high - pxU) <= tol or math.abs(low - pxU) <= tol or math.abs(open - pxU) <= tol or math.abs(close - pxU) <= tol
+                    lnU = line.new(leftBar, pxU, bar_index, pxU, color = tierColor, width = 1, style = tierStyle, extend = extend.right)
+                    array.push(dynLinesToday, lnU)
+                    array.set(dynHit, upperIdx, true)
+
+
+// =====================================================================================
+// BUYSIDE / SELLSIDE LIQUIDITY — EQUAL HIGHS / EQUAL LOWS
+// Two separate detection paths:
+//   1. TRUE EQUAL (within liqTrueEqualTicks, default 1 tick): checked against EVERY
+//      confirmed 1-minute bar's high/low in the lookback window, not just major swings —
+//      a literal equal wick matters regardless of whether either candle is a "major" swing
+//      point (e.g. two adjacent candles with near-identical wicks).
+//   2. EQUAL / RELATIVE EQUAL (up to liqEqualTicks / liqRelEqualTicks): only checked among
+//      MAJOR swing points — a valid 1m swing high/low now requires its wick to be the
+//      highest high (or lowest low) among the 5 candles before AND after it, i.e.
+//      ta.pivothigh(5,5) / ta.pivotlow(5,5) instead of the noisy 1-candle version. This
+//      cuts out minor wiggles and keeps only genuinely significant swing points.
+// Pivot/bar arrays reset at the start of the lookback window (12:55pm) each day. Matched
+// pairs are validated against the sequencing rule, then drawn permanently — never
+// deleted, even once touched. Untouched lines keep extending past the display cutoff
+// until they are.
+// =====================================================================================
+var float[] majHighPrices = array.new_float()   // major swing highs (5,5 pivot)
+var int[]   majHighBars   = array.new_int()
+var float[] majLowPrices  = array.new_float()
+var int[]   majLowBars    = array.new_int()
+
+var float[] allHighPrices = array.new_float()   // every confirmed bar's high (for true-equal)
+var int[]   allHighBars   = array.new_int()
+var float[] allLowPrices  = array.new_float()
+var int[]   allLowBars    = array.new_int()
+
+var line[]  liqLines   = array.new_line()
+var label[] liqLabels  = array.new_label()
+var float[] liqLevels  = array.new_float()
+var bool[]  liqIsHigh  = array.new_bool()
+var bool[]  liqTouched = array.new_bool()
+
+// history retention for liquidity levels — pruned on the same rolling historyDays window
+// as everything else, not kept forever. Variable count per day (like the dynamic ladder
+// above), so it needs its own day-count-based archive rather than the fixed LINES_PER_DAY
+// scheme.
+var line[]  liqHistLines     = array.new_line()
+var label[] liqHistLabels    = array.new_label()
+var int[]   liqHistDayCounts = array.new_int()
+
+if newLiqSession and dateOK
+    // archive yesterday's still-open liquidity levels before resetting pivot tracking —
+    // touched-and-frozen levels from prior days already sit in liqLines too, since this
+    // array holds everything ever drawn (both frozen and still-extending)
+    if array.size(liqLines) > 0 or array.size(liqHistDayCounts) > 0
+        array.push(liqHistDayCounts, array.size(liqLines))
+        for ln in liqLines
+            array.push(liqHistLines, ln)
+        for lb in liqLabels
+            array.push(liqHistLabels, lb)
+        if array.size(liqHistDayCounts) > historyDays
+            n = array.shift(liqHistDayCounts)
+            if n > 0
+                for i = 1 to n
+                    oldestLiqLine = array.shift(liqHistLines)
+                    line.delete(oldestLiqLine)
+                    oldestLiqLabel = array.shift(liqHistLabels)
+                    label.delete(oldestLiqLabel)
+    array.clear(liqLines)
+    array.clear(liqLabels)
+    array.clear(liqLevels)
+    array.clear(liqIsHigh)
+    array.clear(liqTouched)
+
+    array.clear(majHighPrices)
+    array.clear(majHighBars)
+    array.clear(majLowPrices)
+    array.clear(majLowBars)
+    array.clear(allHighPrices)
+    array.clear(allHighBars)
+    array.clear(allLowPrices)
+    array.clear(allLowBars)
+
+f_pushLiquidity(oldBar, newBar, level, txt, isHigh) =>
+    ln = line.new(oldBar, level, newBar, level, color = colRange, width = 1, extend = extend.right)
+    lb = label.new(newBar + labelGap, level, txt, style = label.style_label_left,
+         color = color.new(colRange, 100), textcolor = colRange, size = size.small)
+    array.push(liqLines, ln)
+    array.push(liqLabels, lb)
+    array.push(liqLevels, level)
+    array.push(liqIsHigh, isHigh)
+    array.push(liqTouched, false)
+
+// --- TRUE EQUAL: checked against every confirmed bar's high/low, no swing requirement ---
+if showLiquidity and dateOK and inLiqLookback[1]
+    curHigh = high[1]
+    curLow  = low[1]
+    curBar  = bar_index - 1
+
+    if array.size(allHighPrices) > 0
+        for i = 0 to array.size(allHighPrices) - 1
+            p = array.get(allHighPrices, i)
+            d = math.abs(curHigh - p) / syminfo.mintick
+            if d <= liqTrueEqualTicks and curHigh <= p
+                oldBar = array.get(allHighBars, i)
+                f_pushLiquidity(oldBar, curBar, math.max(curHigh, p), "Equal High", true)
+
+    if array.size(allLowPrices) > 0
+        for i = 0 to array.size(allLowPrices) - 1
+            p = array.get(allLowPrices, i)
+            d = math.abs(curLow - p) / syminfo.mintick
+            if d <= liqTrueEqualTicks and curLow >= p
+                oldBar = array.get(allLowBars, i)
+                f_pushLiquidity(oldBar, curBar, math.min(curLow, p), "Equal Low", false)
+
+    array.push(allHighPrices, curHigh)
+    array.push(allHighBars, curBar)
+    array.push(allLowPrices, curLow)
+    array.push(allLowBars, curBar)
+
+// --- MAJOR SWINGS: valid only if the wick is the highest/lowest across 5 bars each side ---
+liqPh = ta.pivothigh(5, 5)
+liqPl = ta.pivotlow(5, 5)
+
+if showLiquidity and dateOK and not na(liqPh) and inLiqLookback[5]
+    newPrice = liqPh
+    newBar   = bar_index - 5
+    bestIdx  = -1
+    bestDiff = 999999.0
+    if array.size(majHighPrices) > 0
+        for i = 0 to array.size(majHighPrices) - 1
+            p = array.get(majHighPrices, i)
+            d = math.abs(newPrice - p) / syminfo.mintick
+            if d <= liqRelEqualTicks and d < bestDiff
+                bestDiff := d
+                bestIdx := i
+    if bestIdx >= 0
+        oldPrice = array.get(majHighPrices, bestIdx)
+        oldBar   = array.get(majHighBars, bestIdx)
+        if newPrice <= oldPrice   // sequencing rule: more recent high must be <= the older one
+            tight = bestDiff <= liqEqualTicks
+            level = math.max(newPrice, oldPrice)
+            txt   = tight ? "Equal High" : "Engineered Relative Equal Highs Buyside Liquidity"
+            f_pushLiquidity(oldBar, bar_index, level, txt, true)
+    array.push(majHighPrices, newPrice)
+    array.push(majHighBars, newBar)
+
+if showLiquidity and dateOK and not na(liqPl) and inLiqLookback[5]
+    newPriceL = liqPl
+    newBarL   = bar_index - 5
+    bestIdxL  = -1
+    bestDiffL = 999999.0
+    if array.size(majLowPrices) > 0
+        for i = 0 to array.size(majLowPrices) - 1
+            p = array.get(majLowPrices, i)
+            d = math.abs(newPriceL - p) / syminfo.mintick
+            if d <= liqRelEqualTicks and d < bestDiffL
+                bestDiffL := d
+                bestIdxL := i
+    if bestIdxL >= 0
+        oldPriceL = array.get(majLowPrices, bestIdxL)
+        oldBarL   = array.get(majLowBars, bestIdxL)
+        if newPriceL >= oldPriceL   // sequencing rule: more recent low must be >= the older one
+            tightL = bestDiffL <= liqEqualTicks
+            levelL = math.min(newPriceL, oldPriceL)
+            txtL   = tightL ? "Equal Low" : "Engineered Relative Equal Lows Sellside Liquidity"
+            f_pushLiquidity(oldBarL, bar_index, levelL, txtL, false)
+    array.push(majLowPrices, newPriceL)
+    array.push(majLowBars, newBarL)
+
+
+// check every untouched liquidity level every bar: freeze it in place the moment price
+// actually reaches it, otherwise keep it extending (even past the display cutoff)
+if dateOK and array.size(liqLines) > 0
+    for i = 0 to array.size(liqLines) - 1
+        if not array.get(liqTouched, i)
+            lvl    = array.get(liqLevels, i)
+            isHigh = array.get(liqIsHigh, i)
+            reached = isHigh ? high >= lvl : low <= lvl
+            ln = array.get(liqLines, i)
+            lb = array.get(liqLabels, i)
+            if reached
+                line.set_x2(ln, bar_index)
+                line.set_extend(ln, extend.none)
+                if not na(lb)
+                    label.set_x(lb, bar_index + labelGap)
+                array.set(liqTouched, i, true)
+            else
+                if not na(lb)
+                    label.set_x(lb, bar_index + labelGap)
+
+
+// =====================================================================================
+// STOP EXTENDING LINES AT THE DISPLAY CUTOFF (default 4:25pm NY)
+// =====================================================================================
+if reachedDisplayEnd and dateOK
+    if not na(rangeBox)
+        box.set_right(rangeBox, bar_index)
+        box.set_extend(rangeBox, extend.none)
+    if not na(hiLine)
+        line.set_x2(hiLine, bar_index)
+        line.set_extend(hiLine, extend.none)
+    if not na(loLine)
+        line.set_x2(loLine, bar_index)
+        line.set_extend(loLine, extend.none)
+    if not na(hiLabel)
+        label.set_x(hiLabel, bar_index + labelGap)
+    if not na(loLabel)
+        label.set_x(loLabel, bar_index + labelGap)
+    for ln in fibLines
+        if not na(ln)
+            line.set_x2(ln, bar_index)
+            line.set_extend(ln, extend.none)
+    for lb in fibLabels
+        if not na(lb)
+            label.set_x(lb, bar_index + labelGap)
+    for ln in dynLinesToday
+        if not na(ln)
+            line.set_x2(ln, bar_index)
+            line.set_extend(ln, extend.none)
+    rangeActive := false
