@@ -9,33 +9,59 @@ indicator("FPFVG / LPFVG Session Suite", overlay=true, max_boxes_count=200, max_
 
 grpMid = "Midnight"
 showMidnight = input.bool(true, "Show Midnight group", group=grpMid)
-i_Midnight   = input.bool(true, "Midnight FVG", group=grpMid)
+i_Midnight_00 = input.bool(true, "Midnight FVG", group=grpMid)
+i_Midnight_15 = input.bool(true, "Midnight :15", group=grpMid)
+i_Midnight_30 = input.bool(true, "Midnight :30", group=grpMid)
+i_Midnight_45 = input.bool(true, "Midnight :45", group=grpMid)
+i_Midnight_LP = input.bool(true, "Midnight Last", group=grpMid)
 
 grp1am = "1am"
 show1am = input.bool(true, "Show 1am group", group=grp1am)
-i_1am   = input.bool(true, "1am FVG", group=grp1am)
+i_1am_00 = input.bool(true, "1am FVG", group=grp1am)
+i_1am_15 = input.bool(true, "1am :15", group=grp1am)
+i_1am_30 = input.bool(true, "1am :30", group=grp1am)
+i_1am_45 = input.bool(true, "1am :45", group=grp1am)
+i_1am_LP = input.bool(true, "1am Last", group=grp1am)
 
 grp2am = "2am"
 show2am = input.bool(true, "Show 2am group", group=grp2am)
-i_2am   = input.bool(true, "2am FVG", group=grp2am)
+i_2am_00 = input.bool(true, "2am FVG", group=grp2am)
+i_2am_15 = input.bool(true, "2am :15", group=grp2am)
+i_2am_30 = input.bool(true, "2am :30", group=grp2am)
+i_2am_45 = input.bool(true, "2am :45", group=grp2am)
+i_2am_LP = input.bool(true, "2am Last", group=grp2am)
 
 grp3am = "3am"
 show3am = input.bool(true, "Show 3am group", group=grp3am)
-i_3am   = input.bool(true, "3am FVG", group=grp3am)
+i_3am_00 = input.bool(true, "3am FVG", group=grp3am)
+i_3am_15 = input.bool(true, "3am :15", group=grp3am)
+i_3am_30 = input.bool(true, "3am :30", group=grp3am)
+i_3am_45 = input.bool(true, "3am :45", group=grp3am)
+i_3am_LP = input.bool(true, "3am Last", group=grp3am)
 
 grp6am = "6am"
 show6am = input.bool(true, "Show 6am group", group=grp6am)
-i_6am_F = input.bool(true, "6am First", group=grp6am)
-i_6am_L = input.bool(true, "6am Last", group=grp6am)
+i_6am_00 = input.bool(true, "6am FVG", group=grp6am)
+i_6am_15 = input.bool(true, "6am :15", group=grp6am)
+i_6am_30 = input.bool(true, "6am :30", group=grp6am)
+i_6am_45 = input.bool(true, "6am :45", group=grp6am)
+i_6am_LP = input.bool(true, "6am Last", group=grp6am)
 
 grp7am = "7am"
 show7am = input.bool(true, "Show 7am group", group=grp7am)
-i_7am   = input.bool(true, "7am FVG", group=grp7am)
+i_7am_00 = input.bool(true, "7am FVG", group=grp7am)
+i_7am_15 = input.bool(true, "7am :15", group=grp7am)
+i_7am_30 = input.bool(true, "7am :30", group=grp7am)
+i_7am_45 = input.bool(true, "7am :45", group=grp7am)
+i_7am_LP = input.bool(true, "7am Last", group=grp7am)
 
 grp8am = "8am"
 show8am  = input.bool(true, "Show 8am group", group=grp8am)
 i_8am_00 = input.bool(true, "8am FVG", group=grp8am)
+i_8am_15 = input.bool(true, "8am :15", group=grp8am)
 i_8am_30 = input.bool(true, "8am :30", group=grp8am)
+i_8am_45 = input.bool(true, "8am :45", group=grp8am)
+i_8am_LP = input.bool(true, "8am Last", group=grp8am)
 
 grp9am = "9am"
 show9am  = input.bool(true, "Show 9am group", group=grp9am)
@@ -55,13 +81,19 @@ i_10am_LP = input.bool(true, "10am Last", group=grp10am)
 
 grp6pm = "6pm"
 show6pm = input.bool(true, "Show 6pm group", group=grp6pm)
-i_6pm_F = input.bool(true, "6pm First", group=grp6pm)
-i_6pm_L = input.bool(true, "6pm Last", group=grp6pm)
+i_6pm_00 = input.bool(true, "6pm FVG", group=grp6pm)
+i_6pm_15 = input.bool(true, "6pm :15", group=grp6pm)
+i_6pm_30 = input.bool(true, "6pm :30", group=grp6pm)
+i_6pm_45 = input.bool(true, "6pm :45", group=grp6pm)
+i_6pm_LP = input.bool(true, "6pm Last", group=grp6pm)
 
 grp7pm = "7pm"
 show7pm = input.bool(true, "Show 7pm group", group=grp7pm)
-i_7pm_F = input.bool(true, "7pm First", group=grp7pm)
-i_7pm_L = input.bool(true, "7pm Last", group=grp7pm)
+i_7pm_00 = input.bool(true, "7pm FVG", group=grp7pm)
+i_7pm_15 = input.bool(true, "7pm :15", group=grp7pm)
+i_7pm_30 = input.bool(true, "7pm :30", group=grp7pm)
+i_7pm_45 = input.bool(true, "7pm :45", group=grp7pm)
+i_7pm_LP = input.bool(true, "7pm Last", group=grp7pm)
 
 grpTokyo = "Tokyo (8pm)"
 showTokyo  = input.bool(true, "Show Tokyo group", group=grpTokyo)
@@ -73,7 +105,11 @@ i_Tokyo_LP = input.bool(true, "Tokyo Last", group=grpTokyo)
 
 grp10pm = "10pm"
 show10pm = input.bool(true, "Show 10pm group", group=grp10pm)
-i_10pm   = input.bool(true, "10pm FVG", group=grp10pm)
+i_10pm_00 = input.bool(true, "10pm FVG", group=grp10pm)
+i_10pm_15 = input.bool(true, "10pm :15", group=grp10pm)
+i_10pm_30 = input.bool(true, "10pm :30", group=grp10pm)
+i_10pm_45 = input.bool(true, "10pm :45", group=grp10pm)
+i_10pm_LP = input.bool(true, "10pm Last", group=grp10pm)
 
 type SessCfg
     string label
@@ -110,36 +146,49 @@ f_add(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast, _ovr, _is45, _
     array.push(cfgs, SessCfg.new(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast, _ovr, _is45, _isLP, _cat))
     array.push(states, SessState.new())
 
+// Standard 5-slot template for one hour: :00 (plain, no override), :15 (seeks to :25,
+// override), :30 (seeks to :40, override), :45 (seeks to :50, override, gets the :54
+// exception), and Last (scans :54-:59, always takes the latest). Every hour uses the
+// SAME extension rule across all 5 of its own slots unless called out separately.
+f_addHour(prefix, hourNum, showGrp, i00, i15, i30, i45, iLP, extType, extH, extM) =>
+    f_add("FPFVG " + prefix, hourNum, 0, 15, showGrp and i00, extType, extH, extM, false, false, false, false, 0)
+    f_add("FPFVG " + prefix + " :15", hourNum, 15, 10, showGrp and i15, extType, extH, extM, false, true, false, false, 2)
+    f_add("FPFVG " + prefix + " :30", hourNum, 30, 10, showGrp and i30, extType, extH, extM, false, true, false, false, 1)
+    f_add("FPFVG " + prefix + " :45", hourNum, 45, 5, showGrp and i45, extType, extH, extM, false, true, true, false, 2)
+    f_add("LPFVG " + prefix, hourNum, 54, 6, showGrp and iLP, extType, extH, extM, true, false, false, true, 0)
+
 if barstate.isfirst
-    f_add("FPFVG Midnight", 0, 0, 15, showMidnight and i_Midnight, 1, 0, 0, false, false, false, false, 0)
-    f_add("FPFVG 1am", 1, 0, 15, show1am and i_1am, 0, 10, 0, false, false, false, false, 0)
-    f_add("FPFVG 2am", 2, 0, 15, show2am and i_2am, 0, 10, 0, false, false, false, false, 0)
-    f_add("FPFVG 3am", 3, 0, 15, show3am and i_3am, 0, 10, 0, false, false, false, false, 0)
-    f_add("FPFVG 6am", 6, 0, 60, show6am and i_6am_F, 0, 12, 0, false, false, false, false, 0)
-    f_add("LPFVG 6am", 6, 0, 60, show6am and i_6am_L, 0, 12, 0, true, false, false, false, 0)
-    f_add("FPFVG 7am", 7, 0, 15, show7am and i_7am, 0, 10, 0, false, false, false, false, 0)
-    f_add("FPFVG 8am", 8, 0, 15, show8am and i_8am_00, 0, 10, 0, false, false, false, false, 0)
-    f_add("FPFVG 8am :30", 8, 30, 15, show8am and i_8am_30, 0, 10, 0, false, false, false, false, 1)
+    f_addHour("Midnight", 0, showMidnight, i_Midnight_00, i_Midnight_15, i_Midnight_30, i_Midnight_45, i_Midnight_LP, 1, 0, 0)
+    f_addHour("1am", 1, show1am, i_1am_00, i_1am_15, i_1am_30, i_1am_45, i_1am_LP, 0, 10, 0)
+    f_addHour("2am", 2, show2am, i_2am_00, i_2am_15, i_2am_30, i_2am_45, i_2am_LP, 0, 10, 0)
+    f_addHour("3am", 3, show3am, i_3am_00, i_3am_15, i_3am_30, i_3am_45, i_3am_LP, 0, 10, 0)
+    f_addHour("6am", 6, show6am, i_6am_00, i_6am_15, i_6am_30, i_6am_45, i_6am_LP, 0, 12, 0)
+    f_addHour("7am", 7, show7am, i_7am_00, i_7am_15, i_7am_30, i_7am_45, i_7am_LP, 0, 10, 0)
+    f_addHour("8am", 8, show8am, i_8am_00, i_8am_15, i_8am_30, i_8am_45, i_8am_LP, 0, 10, 0)
+    // 9am: same as the standard template, except :30 keeps its previously-requested +24h
+    // extension (a one-off exception from earlier in the build) instead of "until 10am"
     f_add("FPFVG 9am", 9, 0, 15, show9am and i_9am_00, 0, 10, 0, false, false, false, false, 0)
     f_add("FPFVG 9am :15", 9, 15, 10, show9am and i_9am_15, 0, 10, 0, false, true, false, false, 2)
     f_add("FPFVG 9am :30", 9, 30, 10, show9am and i_9am_30, 1, 0, 0, false, true, false, false, 1)
     f_add("FPFVG 9am :45", 9, 45, 5, show9am and i_9am_45, 0, 10, 0, false, true, true, false, 2)
     f_add("LPFVG 9am", 9, 54, 6, show9am and i_9am_LP, 0, 10, 0, true, false, false, true, 0)
+    // 10am: same as the standard template, except :00 keeps its previously-requested
+    // +24h extension instead of "until 12pm"
     f_add("FPFVG 10am", 10, 0, 15, show10am and i_10am_00, 1, 0, 0, false, false, false, false, 0)
     f_add("FPFVG 10am :15", 10, 15, 10, show10am and i_10am_15, 0, 12, 0, false, true, false, false, 2)
     f_add("FPFVG 10am :30", 10, 30, 10, show10am and i_10am_30, 0, 12, 0, false, true, false, false, 1)
     f_add("FPFVG 10am :45", 10, 45, 5, show10am and i_10am_45, 0, 12, 0, false, true, true, false, 2)
     f_add("LPFVG 10am", 10, 54, 6, show10am and i_10am_LP, 0, 12, 0, true, false, false, true, 0)
-    f_add("FPFVG 6pm", 18, 0, 60, show6pm and i_6pm_F, 0, 4, 0, false, false, false, false, 0)
-    f_add("LPFVG 6pm", 18, 0, 60, show6pm and i_6pm_L, 0, 4, 0, true, false, false, false, 0)
-    f_add("FPFVG 7pm", 19, 0, 60, show7pm and i_7pm_F, 0, 23, 0, false, false, false, false, 0)
-    f_add("LPFVG 7pm", 19, 0, 60, show7pm and i_7pm_L, 0, 23, 0, true, false, false, false, 0)
+    f_addHour("6pm", 18, show6pm, i_6pm_00, i_6pm_15, i_6pm_30, i_6pm_45, i_6pm_LP, 0, 4, 0)
+    f_addHour("7pm", 19, show7pm, i_7pm_00, i_7pm_15, i_7pm_30, i_7pm_45, i_7pm_LP, 0, 23, 0)
+    // Tokyo: same as the standard template, except :00/:30/Last extend until 6am while
+    // :15/:45 extend only until Midnight (previously-requested mixed extension pattern)
     f_add("FPFVG Tokyo", 20, 0, 15, showTokyo and i_Tokyo_00, 0, 6, 0, false, false, false, false, 0)
     f_add("FPFVG Tokyo :15", 20, 15, 10, showTokyo and i_Tokyo_15, 0, 0, 0, false, true, false, false, 2)
     f_add("FPFVG Tokyo :30", 20, 30, 10, showTokyo and i_Tokyo_30, 0, 6, 0, false, true, false, false, 1)
     f_add("FPFVG Tokyo :45", 20, 45, 5, showTokyo and i_Tokyo_45, 0, 0, 0, false, true, true, false, 2)
     f_add("LPFVG Tokyo", 20, 54, 6, showTokyo and i_Tokyo_LP, 0, 6, 0, true, false, false, true, 0)
-    f_add("FPFVG 10pm", 22, 0, 15, show10pm and i_10pm, 0, 6, 0, false, false, false, false, 0)
+    f_addHour("10pm", 22, show10pm, i_10pm_00, i_10pm_15, i_10pm_30, i_10pm_45, i_10pm_LP, 0, 6, 0)
 
 var int barCount = 0
 bull = false
