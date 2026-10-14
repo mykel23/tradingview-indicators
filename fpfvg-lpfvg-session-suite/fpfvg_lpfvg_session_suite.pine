@@ -1,5 +1,5 @@
 // @version=5
-indicator("Increment 3 - Single Session (7am)", overlay=true, max_boxes_count=50)
+indicator("Increment 4 - Dynamic Extension (7am)", overlay=true, max_boxes_count=50)
 
 // Same FVG detection as Increment 2, but now only the FIRST FVG whose
 // origin candle falls in the NY 7:00-7:15am window gets kept and drawn
@@ -7,12 +7,21 @@ indicator("Increment 3 - Single Session (7am)", overlay=true, max_boxes_count=50
 // extension/lookahead yet, no override logic yet). This is purely to
 // prove the NY-time window matching works before we add complexity.
 
+// Same FVG detection as Increment 3, now with the DYNAMIC extension behavior:
+// the box's right edge stays 10 bars ahead of the current bar (in the chart's
+// own timeframe) and keeps growing as new bars print, until it reaches its
+// final extension cap. For this test, cap = 10am NY same day (matches the
+// real spec's "7am -> until 10am" rule) so we can see it freeze correctly.
+
 var int barCount = 0
 var box sessBox = na
 var bool sessActive = false
 var int sessLeft = na
 var float sessTop = na
 var float sessBot = na
+var int sessDay = na
+var int sessExtTarget = na
+var bool sessFinalized = false
 
 bull = false
 bear = false
@@ -31,18 +40,43 @@ if barstate.isconfirmed
             originTime = time[2]
             nyH = hour(originTime, "America/New_York")
             nyM = minute(originTime, "America/New_York")
+            nyY = year(originTime, "America/New_York")
+            nyMo = month(originTime, "America/New_York")
+            nyD = dayofmonth(originTime, "America/New_York")
+            dayKey = nyY * 372 + nyMo * 31 + nyD
             momNY = nyH * 60 + nyM
             inWindow = momNY >= (7 * 60) and momNY < (7 * 60 + 15)
+            isNewDay = na(sessDay) or dayKey != sessDay
 
-            // first FVG found anywhere in a 7:00-7:15 window wins; never resets
-            if inWindow and not sessActive
+            if inWindow and (not sessActive or isNewDay)
                 sessActive := true
+                sessFinalized := false
+                sessDay := dayKey
                 sessLeft := originTime
-                sessTop := l3
-                sessBot := h1
-                sessBox := box.new(left=sessLeft, top=sessTop, right=sessLeft + 30 * (time - time[1]), bottom=sessBot,
-                     border_color=color.new(#eeec82, 25), bgcolor=color.new(#eeec82, 80),
-                     border_width=1, xloc=xloc.bar_time)
+                sessTop := bull ? l3 : l1
+                sessBot := bull ? h1 : h3
+                sessBox := na
+                // extension cap: 10am NY on the same calendar day as origin
+                sessExtTarget := timestamp("America/New_York", nyY, nyMo, nyD, 10, 0)
+
+// Draw/update the box. While not finalized, right edge = current bar time + 10 chart bars.
+// Once that would reach/pass the extension cap, freeze at the cap instead.
+lookAheadBars = 10
+
+if sessActive and not sessFinalized
+    rightEdge = time + lookAheadBars * (time - time[1])
+    capped = not na(sessExtTarget) and rightEdge >= sessExtTarget
+    drawRight = capped ? sessExtTarget : rightEdge
+
+    if na(sessBox)
+        sessBox := box.new(left=sessLeft, top=sessTop, right=drawRight, bottom=sessBot,
+             border_color=color.new(#eeec82, 25), bgcolor=color.new(#eeec82, 80),
+             border_width=1, xloc=xloc.bar_time)
+    else
+        box.set_right(sessBox, drawRight)
+
+    if capped
+        sessFinalized := true
 
 var table dbgTbl = table.new(position.top_right, 2, 3, bgcolor=color.new(color.black, 20), border_width=1)
 if barstate.islast
