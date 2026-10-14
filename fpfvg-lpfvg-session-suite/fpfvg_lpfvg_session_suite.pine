@@ -1,13 +1,31 @@
 // @version=5
-indicator("Increment 1 - Bar Counter", overlay=true)
+indicator("Increment 2 - FVG Detection", overlay=true)
 
-// Just counts confirmed bars on the chart. If this number isn't climbing
-// as new bars close, nothing downstream can work either.
+// Detects the classic 3-candle FVG pattern on the chart's own closed bars
+// (this increment assumes you're on a 1m chart, so chart bars ARE the 1m bars).
+// Plots a small triangle above/below any bar that completes an FVG, and
+// keeps a running count. No sessions, no time windows yet.
 
 var int barCount = 0
+var int fvgCount = 0
+
+bull = false
+bear = false
 
 if barstate.isconfirmed
     barCount += 1
+    if barCount >= 3
+        h1 = high[2]
+        l1 = low[2]
+        h3 = high[0]
+        l3 = low[0]
+        bull := l3 > h1
+        bear := h3 < l1
+        if bull or bear
+            fvgCount += 1
+
+plotshape(bull, style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.tiny)
+plotshape(bear, style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
 
 var table dbgTbl = table.new(position.top_right, 2, 3, bgcolor=color.new(color.black, 20), border_width=1)
 if barstate.islast
@@ -15,7 +33,5 @@ if barstate.islast
     table.cell(dbgTbl, 1, 0, timeframe.period, text_color=color.white)
     table.cell(dbgTbl, 0, 1, "confirmed bars seen", text_color=color.white)
     table.cell(dbgTbl, 1, 1, str.tostring(barCount), text_color=color.white)
-    table.cell(dbgTbl, 0, 2, "current bar time (NY)", text_color=color.white)
-    nyH = hour(time, "America/New_York")
-    nyM = minute(time, "America/New_York")
-    table.cell(dbgTbl, 1, 2, str.tostring(nyH) + ":" + str.tostring(nyM), text_color=color.white)
+    table.cell(dbgTbl, 0, 2, "FVGs found", text_color=color.white)
+    table.cell(dbgTbl, 1, 2, str.tostring(fvgCount), text_color=color.white)
