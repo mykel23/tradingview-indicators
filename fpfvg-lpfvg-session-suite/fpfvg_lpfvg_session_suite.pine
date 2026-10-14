@@ -1,5 +1,5 @@
 // @version=5
-indicator("Increment 6 - Batch 6 (LPFVG 54-59)", overlay=true, max_boxes_count=200, max_labels_count=200)
+indicator("FPFVG / LPFVG Session Suite", overlay=true, max_boxes_count=200, max_labels_count=200)
 
 // Scales up the PROVEN Increment 3/4 pattern (first-FVG-found-wins, per-day
 // reset, dynamic 10-bar-ahead extension, freeze at cap) to all 11 "simple"
@@ -278,16 +278,3 @@ if barstate.isconfirmed or barstate.isrealtime
 
             if capped
                 st.finalized := true
-
-var table dbgTbl = table.new(position.top_right, 2, 3, bgcolor=color.new(color.black, 20), border_width=1)
-if barstate.islast
-    activeCount = 0
-    for s = 0 to array.size(states) - 1
-        if array.get(states, s).active
-            activeCount += 1
-    table.cell(dbgTbl, 0, 0, "chart tf", text_color=color.white)
-    table.cell(dbgTbl, 1, 0, timeframe.period, text_color=color.white)
-    table.cell(dbgTbl, 0, 1, "confirmed bars seen", text_color=color.white)
-    table.cell(dbgTbl, 1, 1, str.tostring(barCount), text_color=color.white)
-    table.cell(dbgTbl, 0, 2, "sessions active", text_color=color.white)
-    table.cell(dbgTbl, 1, 2, str.tostring(activeCount) + " / " + str.tostring(array.size(cfgs)), text_color=color.white)
