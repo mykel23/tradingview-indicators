@@ -1,5 +1,5 @@
 // @version=5
-indicator("FPFVG / LPFVG Session Suite", overlay=true, max_boxes_count=200, max_labels_count=200)
+indicator("FPFVG / LPFVG Session Suite", overlay=true, max_boxes_count=200, max_labels_count=200, dynamic_requests=true)
 
 // Scales up the PROVEN Increment 3/4 pattern (first-FVG-found-wins, per-day
 // reset, dynamic 10-bar-ahead extension, freeze at cap) to all 11 "simple"
@@ -114,8 +114,8 @@ if barstate.isfirst
     f_add("FPFVG 1am", 1, 0, 15, show1am and i_1am, 0, 10, 0, false, false, false, false)
     f_add("FPFVG 2am", 2, 0, 15, show2am and i_2am, 0, 10, 0, false, false, false, false)
     f_add("FPFVG 3am", 3, 0, 15, show3am and i_3am, 0, 10, 0, false, false, false, false)
-    f_add("FPFVG 6am", 6, 0, 60, show6am and i_6am_F, 0, 11, 0, false, false, false, false)
-    f_add("LPFVG 6am", 6, 0, 60, show6am and i_6am_L, 0, 11, 0, true, false, false, false)
+    f_add("FPFVG 6am", 6, 0, 60, show6am and i_6am_F, 0, 12, 0, false, false, false, false)
+    f_add("LPFVG 6am", 6, 0, 60, show6am and i_6am_L, 0, 12, 0, true, false, false, false)
     f_add("FPFVG 7am", 7, 0, 15, show7am and i_7am, 0, 10, 0, false, false, false, false)
     f_add("FPFVG 8am", 8, 0, 15, show8am and i_8am_00, 0, 10, 0, false, false, false, false)
     f_add("FPFVG 8am :30", 8, 30, 15, show8am and i_8am_30, 0, 10, 0, false, false, false, false)
@@ -125,10 +125,10 @@ if barstate.isfirst
     f_add("FPFVG 9am :45", 9, 45, 5, show9am and i_9am_45, 0, 10, 0, false, true, true, false)
     f_add("LPFVG 9am", 9, 54, 6, show9am and i_9am_LP, 0, 10, 0, true, false, false, true)
     f_add("FPFVG 10am", 10, 0, 15, show10am and i_10am_00, 1, 0, 0, false, false, false, false)
-    f_add("FPFVG 10am :15", 10, 15, 10, show10am and i_10am_15, 0, 11, 0, false, true, false, false)
-    f_add("FPFVG 10am :30", 10, 30, 10, show10am and i_10am_30, 0, 11, 0, false, true, false, false)
-    f_add("FPFVG 10am :45", 10, 45, 5, show10am and i_10am_45, 0, 11, 0, false, true, true, false)
-    f_add("LPFVG 10am", 10, 54, 6, show10am and i_10am_LP, 0, 11, 0, true, false, false, true)
+    f_add("FPFVG 10am :15", 10, 15, 10, show10am and i_10am_15, 0, 12, 0, false, true, false, false)
+    f_add("FPFVG 10am :30", 10, 30, 10, show10am and i_10am_30, 0, 12, 0, false, true, false, false)
+    f_add("FPFVG 10am :45", 10, 45, 5, show10am and i_10am_45, 0, 12, 0, false, true, true, false)
+    f_add("LPFVG 10am", 10, 54, 6, show10am and i_10am_LP, 0, 12, 0, true, false, false, true)
     f_add("FPFVG 6pm", 18, 0, 60, show6pm and i_6pm_F, 0, 4, 0, false, false, false, false)
     f_add("LPFVG 6pm", 18, 0, 60, show6pm and i_6pm_L, 0, 4, 0, true, false, false, false)
     f_add("FPFVG 7pm", 19, 0, 60, show7pm and i_7pm_F, 0, 23, 0, false, false, false, false)
@@ -144,18 +144,66 @@ var int barCount = 0
 bull = false
 bear = false
 
-if barstate.isconfirmed
-    barCount += 1
-    if barCount >= 3
-        h1 = high[2]
-        l1 = low[2]
-        h3 = high[0]
-        l3 = low[0]
+// FVG detection runs on TRUE 1-minute data regardless of chart timeframe:
+// chart coarser than 1m -> pull real 1-minute intrabars via request.security_lower_tf;
+// chart 1m (or finer) -> use the chart's own bars.
+chartTFSeconds = timeframe.in_seconds(timeframe.period)
+useLTF = chartTFSeconds > 60
+
+var int[]   lt_time  = array.new<int>()
+var float[] lt_high  = array.new<float>()
+var float[] lt_low   = array.new<float>()
+
+if useLTF
+    [_t, _h, _l] = request.security_lower_tf(syminfo.tickerid, "1", [time, high, low])
+    lt_time := _t
+    lt_high := _h
+    lt_low := _l
+
+var int[]   hT = array.new<int>()
+var float[] hH = array.new<float>()
+var float[] hL = array.new<float>()
+var int lastAppendedT = na
+
+if useLTF
+    if barstate.isconfirmed or barstate.isrealtime
+        for i = 0 to array.size(lt_time) - 1
+            t_i = array.get(lt_time, i)
+            if na(lastAppendedT) or t_i > lastAppendedT
+                array.push(hT, t_i)
+                array.push(hH, array.get(lt_high, i))
+                array.push(hL, array.get(lt_low, i))
+                lastAppendedT := t_i
+else
+    if barstate.isconfirmed
+        t_i = time
+        if na(lastAppendedT) or t_i > lastAppendedT
+            array.push(hT, t_i)
+            array.push(hH, high)
+            array.push(hL, low)
+            lastAppendedT := t_i
+
+var int processedUpTo = 0
+
+while array.size(hT) > 4000
+    array.shift(hT)
+    array.shift(hH)
+    array.shift(hL)
+
+newCount = array.size(hT)
+
+if newCount >= 3 and processedUpTo < newCount
+    for idx = math.max(processedUpTo, 2) to newCount - 1
+        barCount += 1
+        h1 = array.get(hH, idx - 2)
+        l1 = array.get(hL, idx - 2)
+        h3 = array.get(hH, idx)
+        l3 = array.get(hL, idx)
         bull := l3 > h1
         bear := h3 < l1
 
         if bull or bear
-            originTime = time[2]
+            originTime = array.get(hT, idx - 2)   // candle 1 — anchors both the box's left edge and its time-window
             nyH = hour(originTime, "America/New_York")
             nyM = minute(originTime, "America/New_York")
             nyY = year(originTime, "America/New_York")
@@ -248,6 +296,7 @@ if barstate.isconfirmed
                                 else
                                     base2 = timestamp("America/New_York", nyY, nyMo, nyD, cfg.extH, cfg.extM)
                                     st.extTarget := cfg.extH <= nyH ? base2 + 86400000 : base2
+    processedUpTo := newCount
 
 lookAheadBars = 10
 labelGap = 3   // small time-gap so label text doesn't touch the line, same convention as the dealing range script
