@@ -167,13 +167,23 @@ var int lastAppendedT = na
 
 if useLTF
     if barstate.isconfirmed or barstate.isrealtime
-        for i = 0 to array.size(lt_time) - 1
-            t_i = array.get(lt_time, i)
-            if na(lastAppendedT) or t_i > lastAppendedT
-                array.push(hT, t_i)
-                array.push(hH, array.get(lt_high, i))
-                array.push(hL, array.get(lt_low, i))
-                lastAppendedT := t_i
+        // TradingView's request.security_lower_tf can silently fall back to returning
+        // just the CHART bar's own OHLC as a single "intrabar" when true 1-minute data
+        // isn't available that far back in history — which would masquerade as a real
+        // 1-minute bar and badly distort FVG detection (5m-sized gaps instead of 1m).
+        // A reliable real pull on a 5m chart should return close to 5 intrabars per
+        // closed bar; if we get suspiciously few, treat this bar's data as unusable
+        // and skip it entirely rather than risk feeding in a disguised 5m candle.
+        expectedIntrabars = math.round(timeframe.in_seconds(timeframe.period) / 60.0)
+        looksReal = array.size(lt_time) >= math.max(2, expectedIntrabars - 1)
+        if looksReal
+            for i = 0 to array.size(lt_time) - 1
+                t_i = array.get(lt_time, i)
+                if na(lastAppendedT) or t_i > lastAppendedT
+                    array.push(hT, t_i)
+                    array.push(hH, array.get(lt_high, i))
+                    array.push(hL, array.get(lt_low, i))
+                    lastAppendedT := t_i
 else
     if barstate.isconfirmed
         t_i = time
@@ -189,6 +199,10 @@ while array.size(hT) > 4000
     array.shift(hT)
     array.shift(hH)
     array.shift(hL)
+    // the cursor tracking how far we've already processed must shift down by the same
+    // amount, or it silently desyncs from the array's real indices once trimming starts —
+    // which halts all future detection once enough history accumulates (~2.7 days)
+    processedUpTo := math.max(0, processedUpTo - 1)
 
 newCount = array.size(hT)
 
@@ -199,8 +213,14 @@ if newCount >= 3 and processedUpTo < newCount
         l1 = array.get(hL, idx - 2)
         h3 = array.get(hH, idx)
         l3 = array.get(hL, idx)
-        bull := l3 > h1
-        bear := h3 < l1
+        t1chk = array.get(hT, idx - 2)
+        t3chk = array.get(hT, idx)
+        // guard against gaps in the 1m sequence (e.g. from the reliability filter above,
+        // or an overnight/weekend break): only treat this as a valid 3-candle pattern if
+        // candle 1 and candle 3 are genuinely exactly 2 minutes apart
+        isAdjacent = (t3chk - t1chk) == 120000
+        bull := isAdjacent and l3 > h1
+        bear := isAdjacent and h3 < l1
 
         if bull or bear
             originTime = array.get(hT, idx - 2)   // candle 1 — anchors both the box's left edge and its time-window
