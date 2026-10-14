@@ -1,6 +1,23 @@
 // @version=5
 indicator("FPFVG / LPFVG Session Suite", overlay=true, max_boxes_count=200, max_labels_count=200, dynamic_requests=true)
 
+// Per-individual-FVG extension override: a dropdown per slot, defaulting to "Default"
+// (meaning: use that slot's own already-established extension rule, unchanged — this
+// preserves every special case like 9am :30's +24h, 10am's +24h, and Tokyo's mixed
+// 6am/midnight pattern exactly as before). Picking anything else overrides ONLY that one
+// slot with a flat "extend N hours/days from formation" rule.
+f_parseExt(sel) =>
+    float result = na
+    if sel != "Default"
+        if str.contains(sel, "day")
+            parts = str.split(sel, " ")
+            n = str.tonumber(array.get(parts, 0))
+            result := n * 24.0
+        else
+            n = str.tonumber(str.replace(sel, "h", ""))
+            result := n
+    result
+
 // Scales up the PROVEN Increment 3/4 pattern (first-FVG-found-wins, per-day
 // reset, dynamic 10-bar-ahead extension, freeze at cap) to all 11 "simple"
 // sessions — the ones with NO override and NO shared LPFVG window.
@@ -14,6 +31,11 @@ i_Midnight_15 = input.bool(true, "Midnight :15", group=grpMid)
 i_Midnight_30 = input.bool(true, "Midnight :30", group=grpMid)
 i_Midnight_45 = input.bool(true, "Midnight :45", group=grpMid)
 i_Midnight_LP = input.bool(true, "Midnight Last", group=grpMid)
+ext_Midnight_00 = input.string("Default", "Midnight FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grpMid)
+ext_Midnight_15 = input.string("Default", "Midnight :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grpMid)
+ext_Midnight_30 = input.string("Default", "Midnight :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grpMid)
+ext_Midnight_45 = input.string("Default", "Midnight :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grpMid)
+ext_Midnight_LP = input.string("Default", "Midnight Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grpMid)
 
 grp1am = "1am"
 show1am = input.bool(true, "Show 1am group", group=grp1am)
@@ -22,6 +44,11 @@ i_1am_15 = input.bool(true, "1am :15", group=grp1am)
 i_1am_30 = input.bool(true, "1am :30", group=grp1am)
 i_1am_45 = input.bool(true, "1am :45", group=grp1am)
 i_1am_LP = input.bool(true, "1am Last", group=grp1am)
+ext_1am_00 = input.string("Default", "1am FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp1am)
+ext_1am_15 = input.string("Default", "1am :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp1am)
+ext_1am_30 = input.string("Default", "1am :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp1am)
+ext_1am_45 = input.string("Default", "1am :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp1am)
+ext_1am_LP = input.string("Default", "1am Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp1am)
 
 grp2am = "2am"
 show2am = input.bool(true, "Show 2am group", group=grp2am)
@@ -30,6 +57,11 @@ i_2am_15 = input.bool(true, "2am :15", group=grp2am)
 i_2am_30 = input.bool(true, "2am :30", group=grp2am)
 i_2am_45 = input.bool(true, "2am :45", group=grp2am)
 i_2am_LP = input.bool(true, "2am Last", group=grp2am)
+ext_2am_00 = input.string("Default", "2am FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp2am)
+ext_2am_15 = input.string("Default", "2am :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp2am)
+ext_2am_30 = input.string("Default", "2am :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp2am)
+ext_2am_45 = input.string("Default", "2am :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp2am)
+ext_2am_LP = input.string("Default", "2am Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp2am)
 
 grp3am = "3am"
 show3am = input.bool(true, "Show 3am group", group=grp3am)
@@ -38,6 +70,11 @@ i_3am_15 = input.bool(true, "3am :15", group=grp3am)
 i_3am_30 = input.bool(true, "3am :30", group=grp3am)
 i_3am_45 = input.bool(true, "3am :45", group=grp3am)
 i_3am_LP = input.bool(true, "3am Last", group=grp3am)
+ext_3am_00 = input.string("Default", "3am FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp3am)
+ext_3am_15 = input.string("Default", "3am :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp3am)
+ext_3am_30 = input.string("Default", "3am :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp3am)
+ext_3am_45 = input.string("Default", "3am :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp3am)
+ext_3am_LP = input.string("Default", "3am Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp3am)
 
 grp6am = "6am"
 show6am = input.bool(true, "Show 6am group", group=grp6am)
@@ -46,6 +83,11 @@ i_6am_15 = input.bool(true, "6am :15", group=grp6am)
 i_6am_30 = input.bool(true, "6am :30", group=grp6am)
 i_6am_45 = input.bool(true, "6am :45", group=grp6am)
 i_6am_LP = input.bool(true, "6am Last", group=grp6am)
+ext_6am_00 = input.string("Default", "6am FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp6am)
+ext_6am_15 = input.string("Default", "6am :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp6am)
+ext_6am_30 = input.string("Default", "6am :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp6am)
+ext_6am_45 = input.string("Default", "6am :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp6am)
+ext_6am_LP = input.string("Default", "6am Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp6am)
 
 grp7am = "7am"
 show7am = input.bool(true, "Show 7am group", group=grp7am)
@@ -54,6 +96,11 @@ i_7am_15 = input.bool(true, "7am :15", group=grp7am)
 i_7am_30 = input.bool(true, "7am :30", group=grp7am)
 i_7am_45 = input.bool(true, "7am :45", group=grp7am)
 i_7am_LP = input.bool(true, "7am Last", group=grp7am)
+ext_7am_00 = input.string("Default", "7am FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp7am)
+ext_7am_15 = input.string("Default", "7am :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp7am)
+ext_7am_30 = input.string("Default", "7am :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp7am)
+ext_7am_45 = input.string("Default", "7am :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp7am)
+ext_7am_LP = input.string("Default", "7am Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp7am)
 
 grp8am = "8am"
 show8am  = input.bool(true, "Show 8am group", group=grp8am)
@@ -62,6 +109,11 @@ i_8am_15 = input.bool(true, "8am :15", group=grp8am)
 i_8am_30 = input.bool(true, "8am :30", group=grp8am)
 i_8am_45 = input.bool(true, "8am :45", group=grp8am)
 i_8am_LP = input.bool(true, "8am Last", group=grp8am)
+ext_8am_00 = input.string("Default", "8am FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp8am)
+ext_8am_15 = input.string("Default", "8am :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp8am)
+ext_8am_30 = input.string("Default", "8am :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp8am)
+ext_8am_45 = input.string("Default", "8am :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp8am)
+ext_8am_LP = input.string("Default", "8am Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp8am)
 
 grp9am = "9am"
 show9am  = input.bool(true, "Show 9am group", group=grp9am)
@@ -70,6 +122,11 @@ i_9am_15 = input.bool(true, "9am :15", group=grp9am)
 i_9am_30 = input.bool(true, "9am :30", group=grp9am)
 i_9am_45 = input.bool(true, "9am :45", group=grp9am)
 i_9am_LP = input.bool(true, "9am Last", group=grp9am)
+ext_9am_00 = input.string("Default", "9am FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp9am)
+ext_9am_15 = input.string("Default", "9am :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp9am)
+ext_9am_30 = input.string("Default", "9am :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp9am)
+ext_9am_45 = input.string("Default", "9am :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp9am)
+ext_9am_LP = input.string("Default", "9am Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp9am)
 
 grp10am = "10am"
 show10am  = input.bool(true, "Show 10am group", group=grp10am)
@@ -78,6 +135,11 @@ i_10am_15 = input.bool(true, "10am :15", group=grp10am)
 i_10am_30 = input.bool(true, "10am :30", group=grp10am)
 i_10am_45 = input.bool(true, "10am :45", group=grp10am)
 i_10am_LP = input.bool(true, "10am Last", group=grp10am)
+ext_10am_00 = input.string("Default", "10am FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp10am)
+ext_10am_15 = input.string("Default", "10am :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp10am)
+ext_10am_30 = input.string("Default", "10am :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp10am)
+ext_10am_45 = input.string("Default", "10am :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp10am)
+ext_10am_LP = input.string("Default", "10am Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp10am)
 
 grp6pm = "6pm"
 show6pm = input.bool(true, "Show 6pm group", group=grp6pm)
@@ -86,6 +148,11 @@ i_6pm_15 = input.bool(true, "6pm :15", group=grp6pm)
 i_6pm_30 = input.bool(true, "6pm :30", group=grp6pm)
 i_6pm_45 = input.bool(true, "6pm :45", group=grp6pm)
 i_6pm_LP = input.bool(true, "6pm Last", group=grp6pm)
+ext_6pm_00 = input.string("Default", "6pm FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp6pm)
+ext_6pm_15 = input.string("Default", "6pm :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp6pm)
+ext_6pm_30 = input.string("Default", "6pm :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp6pm)
+ext_6pm_45 = input.string("Default", "6pm :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp6pm)
+ext_6pm_LP = input.string("Default", "6pm Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp6pm)
 
 grp7pm = "7pm"
 show7pm = input.bool(true, "Show 7pm group", group=grp7pm)
@@ -94,6 +161,11 @@ i_7pm_15 = input.bool(true, "7pm :15", group=grp7pm)
 i_7pm_30 = input.bool(true, "7pm :30", group=grp7pm)
 i_7pm_45 = input.bool(true, "7pm :45", group=grp7pm)
 i_7pm_LP = input.bool(true, "7pm Last", group=grp7pm)
+ext_7pm_00 = input.string("Default", "7pm FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp7pm)
+ext_7pm_15 = input.string("Default", "7pm :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp7pm)
+ext_7pm_30 = input.string("Default", "7pm :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp7pm)
+ext_7pm_45 = input.string("Default", "7pm :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp7pm)
+ext_7pm_LP = input.string("Default", "7pm Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp7pm)
 
 grpTokyo = "Tokyo (8pm)"
 showTokyo  = input.bool(true, "Show Tokyo group", group=grpTokyo)
@@ -102,6 +174,11 @@ i_Tokyo_15 = input.bool(true, "Tokyo :15", group=grpTokyo)
 i_Tokyo_30 = input.bool(true, "Tokyo :30", group=grpTokyo)
 i_Tokyo_45 = input.bool(true, "Tokyo :45", group=grpTokyo)
 i_Tokyo_LP = input.bool(true, "Tokyo Last", group=grpTokyo)
+ext_Tokyo_00 = input.string("Default", "Tokyo FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grpTokyo)
+ext_Tokyo_15 = input.string("Default", "Tokyo :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grpTokyo)
+ext_Tokyo_30 = input.string("Default", "Tokyo :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grpTokyo)
+ext_Tokyo_45 = input.string("Default", "Tokyo :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grpTokyo)
+ext_Tokyo_LP = input.string("Default", "Tokyo Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grpTokyo)
 
 grp10pm = "10pm"
 show10pm = input.bool(true, "Show 10pm group", group=grp10pm)
@@ -110,6 +187,11 @@ i_10pm_15 = input.bool(true, "10pm :15", group=grp10pm)
 i_10pm_30 = input.bool(true, "10pm :30", group=grp10pm)
 i_10pm_45 = input.bool(true, "10pm :45", group=grp10pm)
 i_10pm_LP = input.bool(true, "10pm Last", group=grp10pm)
+ext_10pm_00 = input.string("Default", "10pm FVG Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp10pm)
+ext_10pm_15 = input.string("Default", "10pm :15 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp10pm)
+ext_10pm_30 = input.string("Default", "10pm :30 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp10pm)
+ext_10pm_45 = input.string("Default", "10pm :45 Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp10pm)
+ext_10pm_LP = input.string("Default", "10pm Last Extension", options=["Default", "1h", "2h", "3h", "4h", "5h", "6h", "7h", "8h", "9h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h", "18h", "19h", "20h", "21h", "22h", "23h", "1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days"], group=grp10pm)
 
 type SessCfg
     string label
@@ -125,6 +207,7 @@ type SessCfg
     bool isFortyFive    // true = this is a :45 tracker (gets the special :54 exception)
     bool isLPshared      // true = this is an LPFVG that shares its window with a :45 tracker
     int colorCat          // 0 = First/Last (pale gold), 1 = :30 (amber-gold), 2 = :15/:45 (bronze-gold)
+    float overrideHours   // na = use extType/extH/extM as normal; otherwise extend exactly this many hours from formation
 
 type SessState
     box b = na
@@ -142,53 +225,63 @@ type SessState
 var SessCfg[] cfgs = array.new<SessCfg>()
 var SessState[] states = array.new<SessState>()
 
-f_add(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast, _ovr, _is45, _isLP, _cat) =>
-    array.push(cfgs, SessCfg.new(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast, _ovr, _is45, _isLP, _cat))
+f_add(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast, _ovr, _is45, _isLP, _cat, _ovrHrs) =>
+    array.push(cfgs, SessCfg.new(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast, _ovr, _is45, _isLP, _cat, _ovrHrs))
     array.push(states, SessState.new())
 
 // Standard 5-slot template for one hour: :00 (plain, no override), :15 (seeks to :25,
 // override), :30 (seeks to :40, override), :45 (seeks to :50, override, gets the :54
 // exception), and Last (scans :54-:59, always takes the latest). Every hour uses the
 // SAME extension rule across all 5 of its own slots unless called out separately.
-f_addHour(prefix, hourNum, showGrp, i00, i15, i30, i45, iLP, extType, extH, extM) =>
-    f_add("FPFVG " + prefix, hourNum, 0, 15, showGrp and i00, extType, extH, extM, false, false, false, false, 0)
-    f_add("FPFVG " + prefix + " :15", hourNum, 15, 10, showGrp and i15, extType, extH, extM, false, true, false, false, 2)
-    f_add("FPFVG " + prefix + " :30", hourNum, 30, 10, showGrp and i30, extType, extH, extM, false, true, false, false, 1)
-    f_add("FPFVG " + prefix + " :45", hourNum, 45, 5, showGrp and i45, extType, extH, extM, false, true, true, false, 2)
-    f_add("LPFVG " + prefix, hourNum, 54, 6, showGrp and iLP, extType, extH, extM, true, false, false, true, 0)
+f_addHour(prefix, hourNum, showGrp, i00, i15, i30, i45, iLP, extType, extH, extM, ovr00, ovr15, ovr30, ovr45, ovrLP) =>
+    f_add("FPFVG " + prefix, hourNum, 0, 15, showGrp and i00, extType, extH, extM, false, false, false, false, 0, ovr00)
+    f_add("FPFVG " + prefix + " :15", hourNum, 15, 10, showGrp and i15, extType, extH, extM, false, true, false, false, 2, ovr15)
+    f_add("FPFVG " + prefix + " :30", hourNum, 30, 10, showGrp and i30, extType, extH, extM, false, true, false, false, 1, ovr30)
+    f_add("FPFVG " + prefix + " :45", hourNum, 45, 5, showGrp and i45, extType, extH, extM, false, true, true, false, 2, ovr45)
+    f_add("LPFVG " + prefix, hourNum, 54, 6, showGrp and iLP, extType, extH, extM, true, false, false, true, 0, ovrLP)
 
 if barstate.isfirst
-    f_addHour("Midnight", 0, showMidnight, i_Midnight_00, i_Midnight_15, i_Midnight_30, i_Midnight_45, i_Midnight_LP, 1, 0, 0)
-    f_addHour("1am", 1, show1am, i_1am_00, i_1am_15, i_1am_30, i_1am_45, i_1am_LP, 0, 10, 0)
-    f_addHour("2am", 2, show2am, i_2am_00, i_2am_15, i_2am_30, i_2am_45, i_2am_LP, 0, 10, 0)
-    f_addHour("3am", 3, show3am, i_3am_00, i_3am_15, i_3am_30, i_3am_45, i_3am_LP, 0, 10, 0)
-    f_addHour("6am", 6, show6am, i_6am_00, i_6am_15, i_6am_30, i_6am_45, i_6am_LP, 0, 12, 0)
-    f_addHour("7am", 7, show7am, i_7am_00, i_7am_15, i_7am_30, i_7am_45, i_7am_LP, 0, 10, 0)
-    f_addHour("8am", 8, show8am, i_8am_00, i_8am_15, i_8am_30, i_8am_45, i_8am_LP, 0, 10, 0)
+    f_addHour("Midnight", 0, showMidnight, i_Midnight_00, i_Midnight_15, i_Midnight_30, i_Midnight_45, i_Midnight_LP, 1, 0, 0,
+         f_parseExt(ext_Midnight_00), f_parseExt(ext_Midnight_15), f_parseExt(ext_Midnight_30), f_parseExt(ext_Midnight_45), f_parseExt(ext_Midnight_LP))
+    f_addHour("1am", 1, show1am, i_1am_00, i_1am_15, i_1am_30, i_1am_45, i_1am_LP, 0, 10, 0,
+         f_parseExt(ext_1am_00), f_parseExt(ext_1am_15), f_parseExt(ext_1am_30), f_parseExt(ext_1am_45), f_parseExt(ext_1am_LP))
+    f_addHour("2am", 2, show2am, i_2am_00, i_2am_15, i_2am_30, i_2am_45, i_2am_LP, 0, 10, 0,
+         f_parseExt(ext_2am_00), f_parseExt(ext_2am_15), f_parseExt(ext_2am_30), f_parseExt(ext_2am_45), f_parseExt(ext_2am_LP))
+    f_addHour("3am", 3, show3am, i_3am_00, i_3am_15, i_3am_30, i_3am_45, i_3am_LP, 0, 10, 0,
+         f_parseExt(ext_3am_00), f_parseExt(ext_3am_15), f_parseExt(ext_3am_30), f_parseExt(ext_3am_45), f_parseExt(ext_3am_LP))
+    f_addHour("6am", 6, show6am, i_6am_00, i_6am_15, i_6am_30, i_6am_45, i_6am_LP, 0, 12, 0,
+         f_parseExt(ext_6am_00), f_parseExt(ext_6am_15), f_parseExt(ext_6am_30), f_parseExt(ext_6am_45), f_parseExt(ext_6am_LP))
+    f_addHour("7am", 7, show7am, i_7am_00, i_7am_15, i_7am_30, i_7am_45, i_7am_LP, 0, 10, 0,
+         f_parseExt(ext_7am_00), f_parseExt(ext_7am_15), f_parseExt(ext_7am_30), f_parseExt(ext_7am_45), f_parseExt(ext_7am_LP))
+    f_addHour("8am", 8, show8am, i_8am_00, i_8am_15, i_8am_30, i_8am_45, i_8am_LP, 0, 10, 0,
+         f_parseExt(ext_8am_00), f_parseExt(ext_8am_15), f_parseExt(ext_8am_30), f_parseExt(ext_8am_45), f_parseExt(ext_8am_LP))
     // 9am: same as the standard template, except :30 keeps its previously-requested +24h
     // extension (a one-off exception from earlier in the build) instead of "until 10am"
-    f_add("FPFVG 9am", 9, 0, 15, show9am and i_9am_00, 0, 10, 0, false, false, false, false, 0)
-    f_add("FPFVG 9am :15", 9, 15, 10, show9am and i_9am_15, 0, 10, 0, false, true, false, false, 2)
-    f_add("FPFVG 9am :30", 9, 30, 10, show9am and i_9am_30, 1, 0, 0, false, true, false, false, 1)
-    f_add("FPFVG 9am :45", 9, 45, 5, show9am and i_9am_45, 0, 10, 0, false, true, true, false, 2)
-    f_add("LPFVG 9am", 9, 54, 6, show9am and i_9am_LP, 0, 10, 0, true, false, false, true, 0)
+    f_add("FPFVG 9am", 9, 0, 15, show9am and i_9am_00, 0, 10, 0, false, false, false, false, 0, f_parseExt(ext_9am_00))
+    f_add("FPFVG 9am :15", 9, 15, 10, show9am and i_9am_15, 0, 10, 0, false, true, false, false, 2, f_parseExt(ext_9am_15))
+    f_add("FPFVG 9am :30", 9, 30, 10, show9am and i_9am_30, 1, 0, 0, false, true, false, false, 1, f_parseExt(ext_9am_30))
+    f_add("FPFVG 9am :45", 9, 45, 5, show9am and i_9am_45, 0, 10, 0, false, true, true, false, 2, f_parseExt(ext_9am_45))
+    f_add("LPFVG 9am", 9, 54, 6, show9am and i_9am_LP, 0, 10, 0, true, false, false, true, 0, f_parseExt(ext_9am_LP))
     // 10am: same as the standard template, except :00 keeps its previously-requested
     // +24h extension instead of "until 12pm"
-    f_add("FPFVG 10am", 10, 0, 15, show10am and i_10am_00, 1, 0, 0, false, false, false, false, 0)
-    f_add("FPFVG 10am :15", 10, 15, 10, show10am and i_10am_15, 0, 12, 0, false, true, false, false, 2)
-    f_add("FPFVG 10am :30", 10, 30, 10, show10am and i_10am_30, 0, 12, 0, false, true, false, false, 1)
-    f_add("FPFVG 10am :45", 10, 45, 5, show10am and i_10am_45, 0, 12, 0, false, true, true, false, 2)
-    f_add("LPFVG 10am", 10, 54, 6, show10am and i_10am_LP, 0, 12, 0, true, false, false, true, 0)
-    f_addHour("6pm", 18, show6pm, i_6pm_00, i_6pm_15, i_6pm_30, i_6pm_45, i_6pm_LP, 0, 4, 0)
-    f_addHour("7pm", 19, show7pm, i_7pm_00, i_7pm_15, i_7pm_30, i_7pm_45, i_7pm_LP, 0, 23, 0)
+    f_add("FPFVG 10am", 10, 0, 15, show10am and i_10am_00, 1, 0, 0, false, false, false, false, 0, f_parseExt(ext_10am_00))
+    f_add("FPFVG 10am :15", 10, 15, 10, show10am and i_10am_15, 0, 12, 0, false, true, false, false, 2, f_parseExt(ext_10am_15))
+    f_add("FPFVG 10am :30", 10, 30, 10, show10am and i_10am_30, 0, 12, 0, false, true, false, false, 1, f_parseExt(ext_10am_30))
+    f_add("FPFVG 10am :45", 10, 45, 5, show10am and i_10am_45, 0, 12, 0, false, true, true, false, 2, f_parseExt(ext_10am_45))
+    f_add("LPFVG 10am", 10, 54, 6, show10am and i_10am_LP, 0, 12, 0, true, false, false, true, 0, f_parseExt(ext_10am_LP))
+    f_addHour("6pm", 18, show6pm, i_6pm_00, i_6pm_15, i_6pm_30, i_6pm_45, i_6pm_LP, 0, 4, 0,
+         f_parseExt(ext_6pm_00), f_parseExt(ext_6pm_15), f_parseExt(ext_6pm_30), f_parseExt(ext_6pm_45), f_parseExt(ext_6pm_LP))
+    f_addHour("7pm", 19, show7pm, i_7pm_00, i_7pm_15, i_7pm_30, i_7pm_45, i_7pm_LP, 0, 23, 0,
+         f_parseExt(ext_7pm_00), f_parseExt(ext_7pm_15), f_parseExt(ext_7pm_30), f_parseExt(ext_7pm_45), f_parseExt(ext_7pm_LP))
     // Tokyo: same as the standard template, except :00/:30/Last extend until 6am while
     // :15/:45 extend only until Midnight (previously-requested mixed extension pattern)
-    f_add("FPFVG Tokyo", 20, 0, 15, showTokyo and i_Tokyo_00, 0, 6, 0, false, false, false, false, 0)
-    f_add("FPFVG Tokyo :15", 20, 15, 10, showTokyo and i_Tokyo_15, 0, 0, 0, false, true, false, false, 2)
-    f_add("FPFVG Tokyo :30", 20, 30, 10, showTokyo and i_Tokyo_30, 0, 6, 0, false, true, false, false, 1)
-    f_add("FPFVG Tokyo :45", 20, 45, 5, showTokyo and i_Tokyo_45, 0, 0, 0, false, true, true, false, 2)
-    f_add("LPFVG Tokyo", 20, 54, 6, showTokyo and i_Tokyo_LP, 0, 6, 0, true, false, false, true, 0)
-    f_addHour("10pm", 22, show10pm, i_10pm_00, i_10pm_15, i_10pm_30, i_10pm_45, i_10pm_LP, 0, 6, 0)
+    f_add("FPFVG Tokyo", 20, 0, 15, showTokyo and i_Tokyo_00, 0, 6, 0, false, false, false, false, 0, f_parseExt(ext_Tokyo_00))
+    f_add("FPFVG Tokyo :15", 20, 15, 10, showTokyo and i_Tokyo_15, 0, 0, 0, false, true, false, false, 2, f_parseExt(ext_Tokyo_15))
+    f_add("FPFVG Tokyo :30", 20, 30, 10, showTokyo and i_Tokyo_30, 0, 6, 0, false, true, false, false, 1, f_parseExt(ext_Tokyo_30))
+    f_add("FPFVG Tokyo :45", 20, 45, 5, showTokyo and i_Tokyo_45, 0, 0, 0, false, true, true, false, 2, f_parseExt(ext_Tokyo_45))
+    f_add("LPFVG Tokyo", 20, 54, 6, showTokyo and i_Tokyo_LP, 0, 6, 0, true, false, false, true, 0, f_parseExt(ext_Tokyo_LP))
+    f_addHour("10pm", 22, show10pm, i_10pm_00, i_10pm_15, i_10pm_30, i_10pm_45, i_10pm_LP, 0, 6, 0,
+         f_parseExt(ext_10pm_00), f_parseExt(ext_10pm_15), f_parseExt(ext_10pm_30), f_parseExt(ext_10pm_45), f_parseExt(ext_10pm_LP))
 
 var int barCount = 0
 bull = false
@@ -363,8 +456,11 @@ if newCount >= 3 and processedUpTo < newCount
                         st.bot := gBot
                         st.gapSize := gapSizeNow
                         st.b := na
-                        // extension target
-                        if cfg.extType == 1
+                        // extension target — a per-slot override takes priority over the
+                        // hour's normal default extension rule entirely
+                        if not na(cfg.overrideHours)
+                            st.extTarget := originTime + int(cfg.overrideHours * 3600000)
+                        else if cfg.extType == 1
                             st.extTarget := originTime + 86400000
                         else if cfg.extType == 2
                             st.extTarget := originTime + 21 * 86400000
@@ -401,7 +497,9 @@ if newCount >= 3 and processedUpTo < newCount
                                 st.bot := gBot
                                 st.gapSize := gapSizeNow
                                 st.b := na
-                                if cfg.extType == 1
+                                if not na(cfg.overrideHours)
+                                    st.extTarget := originTime + int(cfg.overrideHours * 3600000)
+                                else if cfg.extType == 1
                                     st.extTarget := originTime + 86400000
                                 else if cfg.extType == 2
                                     st.extTarget := originTime + 21 * 86400000
