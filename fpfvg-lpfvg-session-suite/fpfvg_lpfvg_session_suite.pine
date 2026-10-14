@@ -1,31 +1,72 @@
 // @version=5
-indicator("Increment 5 - Override Window (9am :15)", overlay=true, max_boxes_count=50)
+indicator("Increment 6 - Batch 1 (Simple Sessions)", overlay=true, max_boxes_count=200, max_labels_count=200)
 
-// Tests the "seek extra minutes, keep the bigger-gap FVG" rule using the
-// 9am :15 slot as the test case: window is NY 9:15-9:25 (extended seek).
-// First FVG found in that window is kept provisionally; if a LARGER-gap
-// FVG forms later in the same window (before 9:25), it replaces the first
-// one. Once the window closes, whatever's currently held is final for the
-// day, and the dynamic-extension logic from Increment 4 takes over.
+// Scales up the PROVEN Increment 3/4 pattern (first-FVG-found-wins, per-day
+// reset, dynamic 10-bar-ahead extension, freeze at cap) to all 11 "simple"
+// sessions — the ones with NO override and NO shared LPFVG window.
+// No 9am:15/:30/:45, 10am:15/:30/:45, Tokyo:15/:30/:45, or any LPFVG yet —
+// those come in later batches.
+
+grp = "Session Groups"
+showMidnight = input.bool(true, "Midnight (12am)", group=grp)
+show1am      = input.bool(true, "1am", group=grp)
+show2am      = input.bool(true, "2am", group=grp)
+show3am      = input.bool(true, "3am", group=grp)
+show6am      = input.bool(true, "6am", group=grp)
+show7am      = input.bool(true, "7am", group=grp)
+show8am      = input.bool(true, "8am", group=grp)
+show9am      = input.bool(true, "9am", group=grp)
+show10am     = input.bool(true, "10am", group=grp)
+show6pm      = input.bool(true, "6pm", group=grp)
+show7pm      = input.bool(true, "7pm", group=grp)
+showTokyo    = input.bool(true, "Tokyo (8pm)", group=grp)
+show10pm     = input.bool(true, "10pm", group=grp)
+
+type SessCfg
+    string label
+    int startH
+    int startM
+    int winMin
+    bool show
+    int extType   // 0 = fixed NY clock time, 1 = +24h, 2 = +21 days
+    int extH
+    int extM
+
+type SessState
+    box b = na
+    label lb = na
+    line mid = na
+    bool active = false
+    bool finalized = false
+    int day = na
+    int left = na
+    float top = na
+    float bot = na
+    int extTarget = na
+
+var SessCfg[] cfgs = array.new<SessCfg>()
+var SessState[] states = array.new<SessState>()
+
+f_add(_label, _sh, _sm, _win, _show, _extType, _eh, _em) =>
+    array.push(cfgs, SessCfg.new(_label, _sh, _sm, _win, _show, _extType, _eh, _em))
+    array.push(states, SessState.new())
+
+if barstate.isfirst
+    f_add("FPFVG Midnight", 0, 0, 15, showMidnight, 1, 0, 0)      // +24h
+    f_add("FPFVG 1am", 1, 0, 15, show1am, 0, 10, 0)               // until 10am
+    f_add("FPFVG 2am", 2, 0, 15, show2am, 0, 10, 0)
+    f_add("FPFVG 3am", 3, 0, 15, show3am, 0, 10, 0)
+    f_add("FPFVG 6am", 6, 0, 60, show6am, 0, 11, 0)                // full hour, until 11am
+    f_add("FPFVG 7am", 7, 0, 15, show7am, 0, 10, 0)
+    f_add("FPFVG 8am", 8, 0, 15, show8am, 0, 10, 0)
+    f_add("FPFVG 10am", 10, 0, 15, show10am, 1, 0, 0)             // +24h
+    f_add("FPFVG 6pm", 18, 0, 60, show6pm, 0, 4, 0)                // full hour, until 4am
+    f_add("FPFVG 7pm", 19, 0, 60, show7pm, 0, 23, 0)               // full hour, until 11pm
+    f_add("FPFVG 10pm", 22, 0, 15, show10pm, 0, 6, 0)             // until 6am
 
 var int barCount = 0
-var box sessBox = na
-var bool sessActive = false      // true once ANY fvg found in the window today
-var bool sessLocked = false      // true once the window (9:15-9:25) has closed for today
-var int sessLeft = na
-var float sessTop = na
-var float sessBot = na
-var float sessGapSize = na
-var int sessDay = na
-var int sessExtTarget = na
-var bool sessFinalized = false
-var int overrideCount = 0
-
 bull = false
 bear = false
-
-WIN_START = 9 * 60 + 15
-WIN_END = 9 * 60 + 25   // extended seek deadline (:25 instead of :30)
 
 if barstate.isconfirmed
     barCount += 1
@@ -46,84 +87,74 @@ if barstate.isconfirmed
             nyD = dayofmonth(originTime, "America/New_York")
             dayKey = nyY * 372 + nyMo * 31 + nyD
             momNY = nyH * 60 + nyM
-            inWindow = momNY >= WIN_START and momNY < WIN_END
-            isNewDay = na(sessDay) or dayKey != sessDay
-            gapSize = bull ? (l3 - h1) : (l1 - h3)
             gTop = bull ? l3 : l1
             gBot = bull ? h1 : h3
 
-            if isNewDay and inWindow
-                // brand new day: reset everything, take this as the first candidate
-                sessActive := true
-                sessLocked := false
-                sessFinalized := false
-                sessDay := dayKey
-                sessLeft := originTime
-                sessTop := gTop
-                sessBot := gBot
-                sessGapSize := gapSize
-                sessBox := na
-                sessExtTarget := timestamp("America/New_York", nyY, nyMo, nyD, 10, 0)
-            else if isNewDay and not inWindow
-                // new day but we haven't reached the window yet, or already passed it
-                // with nothing found — just reset tracking so we're ready when it opens
-                sessActive := false
-                sessLocked := momNY >= WIN_END
-                sessDay := dayKey
-            else if not isNewDay and inWindow
-                if not sessActive
-                    // first fvg found in today's window
-                    sessActive := true
-                    sessFinalized := false
-                    sessLeft := originTime
-                    sessTop := gTop
-                    sessBot := gBot
-                    sessGapSize := gapSize
-                    sessBox := na
-                    sessExtTarget := timestamp("America/New_York", nyY, nyMo, nyD, 10, 0)
-                else if gapSize > sessGapSize
-                    // override: bigger displacement found later in the same window
-                    overrideCount += 1
-                    sessLeft := originTime
-                    sessTop := gTop
-                    sessBot := gBot
-                    sessGapSize := gapSize
-                    sessExtTarget := timestamp("America/New_York", nyY, nyMo, nyD, 10, 0)
+            for s = 0 to array.size(cfgs) - 1
+                cfg = array.get(cfgs, s)
+                st = array.get(states, s)
+                if cfg.show
+                    winStart = cfg.startH * 60 + cfg.startM
+                    winEnd = winStart + cfg.winMin
+                    inWin = momNY >= winStart and momNY < winEnd
+                    isNewDay = na(st.day) or dayKey != st.day
 
-            if not isNewDay and momNY >= WIN_END
-                sessLocked := true
+                    if inWin and (not st.active or isNewDay)
+                        st.active := true
+                        st.finalized := false
+                        st.day := dayKey
+                        st.left := originTime
+                        st.top := gTop
+                        st.bot := gBot
+                        st.b := na
+                        // extension target
+                        if cfg.extType == 1
+                            st.extTarget := originTime + 86400000
+                        else if cfg.extType == 2
+                            st.extTarget := originTime + 21 * 86400000
+                        else
+                            base = timestamp("America/New_York", nyY, nyMo, nyD, cfg.extH, cfg.extM)
+                            st.extTarget := cfg.extH <= nyH ? base + 86400000 : base
 
-// Draw/update using the same dynamic-extension approach as Increment 4
 lookAheadBars = 10
+labelGap = 3   // small time-gap so label text doesn't touch the line, same convention as the dealing range script
+gapMs = labelGap * timeframe.in_seconds(timeframe.period) * 1000
 
-if sessActive and not sessFinalized
-    rightEdge = time + lookAheadBars * (time - time[1])
-    capped = not na(sessExtTarget) and rightEdge >= sessExtTarget
-    drawRight = capped ? sessExtTarget : rightEdge
+if barstate.isconfirmed or barstate.isrealtime
+    for s = 0 to array.size(cfgs) - 1
+        cfg = array.get(cfgs, s)
+        st = array.get(states, s)
+        if cfg.show and st.active and not st.finalized
+            rightEdge = time + lookAheadBars * (time - time[1])
+            capped = not na(st.extTarget) and rightEdge >= st.extTarget
+            drawRight = capped ? st.extTarget : rightEdge
+            midPrice = (st.top + st.bot) / 2
 
-    if na(sessBox)
-        sessBox := box.new(left=sessLeft, top=sessTop, right=drawRight, bottom=sessBot,
-             border_color=color.new(#eeec82, 25), bgcolor=color.new(#eeec82, 80),
-             border_width=1, xloc=xloc.bar_time)
-    else
-        box.set_left(sessBox, sessLeft)
-        box.set_top(sessBox, sessTop)
-        box.set_bottom(sessBox, sessBot)
-        box.set_right(sessBox, drawRight)
+            if na(st.b)
+                st.b := box.new(left=st.left, top=st.top, right=drawRight, bottom=st.bot,
+                     border_color=color.new(#eeec82, 25), bgcolor=color.new(#eeec82, 80),
+                     border_width=1, xloc=xloc.bar_time)
+                st.mid := line.new(x1=st.left, y1=midPrice, x2=drawRight, y2=midPrice,
+                     color=color.new(#eeec82, 25), style=line.style_dashed, width=1, xloc=xloc.bar_time)
+                st.lb := label.new(x=drawRight + gapMs, y=midPrice, text=cfg.label, style=label.style_label_left,
+                     color=color.new(color.black, 100), textcolor=color.new(#eeec82, 0), size=size.small, xloc=xloc.bar_time)
+            else
+                box.set_right(st.b, drawRight)
+                line.set_x2(st.mid, drawRight)
+                label.set_x(st.lb, drawRight + gapMs)
 
-    if capped
-        sessFinalized := true
+            if capped
+                st.finalized := true
 
-var table dbgTbl = table.new(position.top_right, 2, 5, bgcolor=color.new(color.black, 20), border_width=1)
+var table dbgTbl = table.new(position.top_right, 2, 3, bgcolor=color.new(color.black, 20), border_width=1)
 if barstate.islast
+    activeCount = 0
+    for s = 0 to array.size(states) - 1
+        if array.get(states, s).active
+            activeCount += 1
     table.cell(dbgTbl, 0, 0, "chart tf", text_color=color.white)
     table.cell(dbgTbl, 1, 0, timeframe.period, text_color=color.white)
     table.cell(dbgTbl, 0, 1, "confirmed bars seen", text_color=color.white)
     table.cell(dbgTbl, 1, 1, str.tostring(barCount), text_color=color.white)
-    table.cell(dbgTbl, 0, 2, "9am:15 session found?", text_color=color.white)
-    table.cell(dbgTbl, 1, 2, str.tostring(sessActive), text_color=color.white)
-    table.cell(dbgTbl, 0, 3, "override count (total)", text_color=color.white)
-    table.cell(dbgTbl, 1, 3, str.tostring(overrideCount), text_color=color.white)
-    table.cell(dbgTbl, 0, 4, "box is on date (NY)", text_color=color.white)
-    dateStr = sessActive ? str.tostring(year(sessLeft, "America/New_York")) + "-" + str.tostring(month(sessLeft, "America/New_York")) + "-" + str.tostring(dayofmonth(sessLeft, "America/New_York")) : "none yet"
-    table.cell(dbgTbl, 1, 4, dateStr, text_color=color.white)
+    table.cell(dbgTbl, 0, 2, "sessions active", text_color=color.white)
+    table.cell(dbgTbl, 1, 2, str.tostring(activeCount) + " / " + str.tostring(array.size(cfgs)), text_color=color.white)
