@@ -1,5 +1,5 @@
 // @version=5
-indicator("Increment 6 - Batch 3 (+ Override Quarters)", overlay=true, max_boxes_count=200, max_labels_count=200)
+indicator("Increment 6 - Batch 4 (+ LPFVGs)", overlay=true, max_boxes_count=200, max_labels_count=200)
 
 // Scales up the PROVEN Increment 3/4 pattern (first-FVG-found-wins, per-day
 // reset, dynamic 10-bar-ahead extension, freeze at cap) to all 11 "simple"
@@ -7,20 +7,73 @@ indicator("Increment 6 - Batch 3 (+ Override Quarters)", overlay=true, max_boxes
 // No 9am:15/:30/:45, 10am:15/:30/:45, Tokyo:15/:30/:45, or any LPFVG yet —
 // those come in later batches.
 
-grp = "Session Groups"
-showMidnight = input.bool(true, "Midnight (12am)", group=grp)
-show1am      = input.bool(true, "1am", group=grp)
-show2am      = input.bool(true, "2am", group=grp)
-show3am      = input.bool(true, "3am", group=grp)
-show6am      = input.bool(true, "6am", group=grp)
-show7am      = input.bool(true, "7am", group=grp)
-show8am      = input.bool(true, "8am", group=grp)
-show9am      = input.bool(true, "9am", group=grp)
-show10am     = input.bool(true, "10am", group=grp)
-show6pm      = input.bool(true, "6pm", group=grp)
-show7pm      = input.bool(true, "7pm", group=grp)
-showTokyo    = input.bool(true, "Tokyo (8pm)", group=grp)
-show10pm     = input.bool(true, "10pm", group=grp)
+grpMid = "Midnight"
+showMidnight = input.bool(true, "Show Midnight group", group=grpMid)
+i_Midnight   = input.bool(true, "Midnight FVG", group=grpMid)
+
+grp1am = "1am"
+show1am = input.bool(true, "Show 1am group", group=grp1am)
+i_1am   = input.bool(true, "1am FVG", group=grp1am)
+
+grp2am = "2am"
+show2am = input.bool(true, "Show 2am group", group=grp2am)
+i_2am   = input.bool(true, "2am FVG", group=grp2am)
+
+grp3am = "3am"
+show3am = input.bool(true, "Show 3am group", group=grp3am)
+i_3am   = input.bool(true, "3am FVG", group=grp3am)
+
+grp6am = "6am"
+show6am = input.bool(true, "Show 6am group", group=grp6am)
+i_6am_F = input.bool(true, "6am First", group=grp6am)
+i_6am_L = input.bool(true, "6am Last", group=grp6am)
+
+grp7am = "7am"
+show7am = input.bool(true, "Show 7am group", group=grp7am)
+i_7am   = input.bool(true, "7am FVG", group=grp7am)
+
+grp8am = "8am"
+show8am  = input.bool(true, "Show 8am group", group=grp8am)
+i_8am_00 = input.bool(true, "8am FVG", group=grp8am)
+i_8am_30 = input.bool(true, "8am :30", group=grp8am)
+
+grp9am = "9am"
+show9am  = input.bool(true, "Show 9am group", group=grp9am)
+i_9am_00 = input.bool(true, "9am FVG", group=grp9am)
+i_9am_15 = input.bool(true, "9am :15", group=grp9am)
+i_9am_30 = input.bool(true, "9am :30", group=grp9am)
+i_9am_45 = input.bool(true, "9am :45", group=grp9am)
+i_9am_LP = input.bool(true, "9am Last", group=grp9am)
+
+grp10am = "10am"
+show10am  = input.bool(true, "Show 10am group", group=grp10am)
+i_10am_00 = input.bool(true, "10am FVG", group=grp10am)
+i_10am_15 = input.bool(true, "10am :15", group=grp10am)
+i_10am_30 = input.bool(true, "10am :30", group=grp10am)
+i_10am_45 = input.bool(true, "10am :45", group=grp10am)
+i_10am_LP = input.bool(true, "10am Last", group=grp10am)
+
+grp6pm = "6pm"
+show6pm = input.bool(true, "Show 6pm group", group=grp6pm)
+i_6pm_F = input.bool(true, "6pm First", group=grp6pm)
+i_6pm_L = input.bool(true, "6pm Last", group=grp6pm)
+
+grp7pm = "7pm"
+show7pm = input.bool(true, "Show 7pm group", group=grp7pm)
+i_7pm_F = input.bool(true, "7pm First", group=grp7pm)
+i_7pm_L = input.bool(true, "7pm Last", group=grp7pm)
+
+grpTokyo = "Tokyo (8pm)"
+showTokyo  = input.bool(true, "Show Tokyo group", group=grpTokyo)
+i_Tokyo_00 = input.bool(true, "Tokyo FVG", group=grpTokyo)
+i_Tokyo_15 = input.bool(true, "Tokyo :15", group=grpTokyo)
+i_Tokyo_30 = input.bool(true, "Tokyo :30", group=grpTokyo)
+i_Tokyo_45 = input.bool(true, "Tokyo :45", group=grpTokyo)
+i_Tokyo_LP = input.bool(true, "Tokyo Last", group=grpTokyo)
+
+grp10pm = "10pm"
+show10pm = input.bool(true, "Show 10pm group", group=grp10pm)
+i_10pm   = input.bool(true, "10pm FVG", group=grp10pm)
 
 type SessCfg
     string label
@@ -55,32 +108,35 @@ f_add(_label, _sh, _sm, _win, _show, _extType, _eh, _em, _isLast, _ovr) =>
     array.push(states, SessState.new())
 
 if barstate.isfirst
-    f_add("FPFVG Midnight", 0, 0, 15, showMidnight, 1, 0, 0, false, false)      // +24h
-    f_add("FPFVG 1am", 1, 0, 15, show1am, 0, 10, 0, false, false)               // until 10am
-    f_add("FPFVG 2am", 2, 0, 15, show2am, 0, 10, 0, false, false)
-    f_add("FPFVG 3am", 3, 0, 15, show3am, 0, 10, 0, false, false)
-    f_add("FPFVG 6am", 6, 0, 60, show6am, 0, 11, 0, false, false)                // full hour, until 11am
-    f_add("LPFVG 6am", 6, 0, 60, show6am, 0, 11, 0, true, false)                 // full hour, until 11am
-    f_add("FPFVG 7am", 7, 0, 15, show7am, 0, 10, 0, false, false)
-    f_add("FPFVG 8am", 8, 0, 15, show8am, 0, 10, 0, false, false)
-    f_add("FPFVG 8am :30", 8, 30, 15, show8am, 0, 10, 0, false, false)
-    f_add("FPFVG 9am", 9, 0, 15, show9am, 0, 10, 0, false, false)
-    f_add("FPFVG 9am :15", 9, 15, 10, show9am, 0, 10, 0, false, true)            // seeks to :25
-    f_add("FPFVG 9am :30", 9, 30, 10, show9am, 1, 0, 0, false, true)             // seeks to :40, +24h ext
-    f_add("FPFVG 9am :45", 9, 45, 5, show9am, 0, 10, 0, false, true)             // seeks to :50
-    f_add("FPFVG 10am", 10, 0, 15, show10am, 1, 0, 0, false, false)             // +24h
-    f_add("FPFVG 10am :15", 10, 15, 10, show10am, 0, 11, 0, false, true)        // seeks to :25
-    f_add("FPFVG 10am :30", 10, 30, 10, show10am, 0, 11, 0, false, true)        // seeks to :40
-    f_add("FPFVG 10am :45", 10, 45, 5, show10am, 0, 11, 0, false, true)         // seeks to :50
-    f_add("FPFVG 6pm", 18, 0, 60, show6pm, 0, 4, 0, false, false)                // full hour, until 4am
-    f_add("LPFVG 6pm", 18, 0, 60, show6pm, 0, 4, 0, true, false)
-    f_add("FPFVG 7pm", 19, 0, 60, show7pm, 0, 23, 0, false, false)               // full hour, until 11pm
-    f_add("LPFVG 7pm", 19, 0, 60, show7pm, 0, 23, 0, true, false)
-    f_add("FPFVG Tokyo", 20, 0, 15, showTokyo, 0, 6, 0, false, false)       // until 6am
-    f_add("FPFVG Tokyo :15", 20, 15, 10, showTokyo, 0, 0, 0, false, true)   // seeks to :25, until 12am
-    f_add("FPFVG Tokyo :30", 20, 30, 10, showTokyo, 0, 6, 0, false, true)   // seeks to :40, until 6am
-    f_add("FPFVG Tokyo :45", 20, 45, 5, showTokyo, 0, 0, 0, false, true)    // seeks to :50, until 12am
-    f_add("FPFVG 10pm", 22, 0, 15, show10pm, 0, 6, 0, false, false)             // until 6am
+    f_add("FPFVG Midnight", 0, 0, 15, showMidnight and i_Midnight, 1, 0, 0, false, false)
+    f_add("FPFVG 1am", 1, 0, 15, show1am and i_1am, 0, 10, 0, false, false)
+    f_add("FPFVG 2am", 2, 0, 15, show2am and i_2am, 0, 10, 0, false, false)
+    f_add("FPFVG 3am", 3, 0, 15, show3am and i_3am, 0, 10, 0, false, false)
+    f_add("FPFVG 6am", 6, 0, 60, show6am and i_6am_F, 0, 11, 0, false, false)
+    f_add("LPFVG 6am", 6, 0, 60, show6am and i_6am_L, 0, 11, 0, true, false)
+    f_add("FPFVG 7am", 7, 0, 15, show7am and i_7am, 0, 10, 0, false, false)
+    f_add("FPFVG 8am", 8, 0, 15, show8am and i_8am_00, 0, 10, 0, false, false)
+    f_add("FPFVG 8am :30", 8, 30, 15, show8am and i_8am_30, 0, 10, 0, false, false)
+    f_add("FPFVG 9am", 9, 0, 15, show9am and i_9am_00, 0, 10, 0, false, false)
+    f_add("FPFVG 9am :15", 9, 15, 10, show9am and i_9am_15, 0, 10, 0, false, true)
+    f_add("FPFVG 9am :30", 9, 30, 10, show9am and i_9am_30, 1, 0, 0, false, true)
+    f_add("FPFVG 9am :45", 9, 45, 5, show9am and i_9am_45, 0, 10, 0, false, true)
+    f_add("LPFVG 9am", 9, 45, 5, show9am and i_9am_LP, 0, 10, 0, true, false)
+    f_add("FPFVG 10am", 10, 0, 15, show10am and i_10am_00, 1, 0, 0, false, false)
+    f_add("FPFVG 10am :15", 10, 15, 10, show10am and i_10am_15, 0, 11, 0, false, true)
+    f_add("FPFVG 10am :30", 10, 30, 10, show10am and i_10am_30, 0, 11, 0, false, true)
+    f_add("FPFVG 10am :45", 10, 45, 5, show10am and i_10am_45, 0, 11, 0, false, true)
+    f_add("LPFVG 10am", 10, 45, 5, show10am and i_10am_LP, 0, 11, 0, true, false)
+    f_add("FPFVG 6pm", 18, 0, 60, show6pm and i_6pm_F, 0, 4, 0, false, false)
+    f_add("LPFVG 6pm", 18, 0, 60, show6pm and i_6pm_L, 0, 4, 0, true, false)
+    f_add("FPFVG 7pm", 19, 0, 60, show7pm and i_7pm_F, 0, 23, 0, false, false)
+    f_add("LPFVG 7pm", 19, 0, 60, show7pm and i_7pm_L, 0, 23, 0, true, false)
+    f_add("FPFVG Tokyo", 20, 0, 15, showTokyo and i_Tokyo_00, 0, 6, 0, false, false)
+    f_add("FPFVG Tokyo :15", 20, 15, 10, showTokyo and i_Tokyo_15, 0, 0, 0, false, true)
+    f_add("FPFVG Tokyo :30", 20, 30, 10, showTokyo and i_Tokyo_30, 0, 6, 0, false, true)
+    f_add("FPFVG Tokyo :45", 20, 45, 5, showTokyo and i_Tokyo_45, 0, 0, 0, false, true)
+    f_add("LPFVG Tokyo", 20, 45, 5, showTokyo and i_Tokyo_LP, 0, 6, 0, true, false)
+    f_add("FPFVG 10pm", 22, 0, 15, show10pm and i_10pm, 0, 6, 0, false, false)
 
 var int barCount = 0
 bull = false
